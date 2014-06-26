@@ -22,7 +22,7 @@ console.log(schedule.next());
 
 Find the next seven dates which are either 10AM on a weekday, or noon or a weekend by using schedule groups:
 
-```
+```javascript
 var schedule = sch('schedule(hours(10), days(!sat-sun)) schedule(hours(12), days(sat-sun))');
 var dates = [];
 var d = null;
