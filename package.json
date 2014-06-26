@@ -1,0 +1,19 @@
+{
+  "name": "sch",
+  "description": "A simple utility for parsing schedule strings, and finding the next scheduled event time.",
+  "version": "0.0.1",
+  "author": "Bret Copeland <bret@atlantisflight.org>",
+  "main": "./lib/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bretcope/sch.git"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "mocha": "^1.20.1"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "license": "MIT"
+}
