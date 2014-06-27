@@ -64,22 +64,22 @@ console.log(dates);
 
 ## Syntax
 
-Format strings are composed of expressions. Each . The `sch(format)` method will throw an exception if the format string is invalid.
+Format strings are composed of [groups](#groups) of [expressions](#expressions). The `sch(format)` method will throw an exception if the format string is invalid.
 
-Syntax rules:
+General Syntax Rules:
 
 * Expression uses a similar syntax as function calls in C-Style languages: `name(arg0, arg1, arg2)`
 * Format strings are case-insensitive. `dayofmonth` is equivalent to `DAYOFMONTH` or `dayOfMonth`, etc.
 * All whitespace is insignificant.
-* Fractional numbers should not be used. Any fractional portion of a number will be truncated into an integer.
+* Fractional numbers should not be used. Any fractional portion of a number will be truncated into an integer. Minute is currently the highest precision offered.
 * An argument preceded by a `!` is treated as an exclude. `days(!sat-sun)` means that Saturday and Sunday are excluded from the schedule.
 * All expressions accept any number of arguments, and may mix includes and excludes. For example, you might specify every weekday except tuesday as `days(mon-fri, !tues)`.
 * All time-related values are evaluated as UTC. `hours(12)` will be noon UTC, not noon local.
-* Numeric ranges are specified in the form of `low-high`. For example, `days(1-5)` equals the first five days of the month. The order of high and low is significant, and an exception will be thrown if low is greater than high (except as noted in the expression documentation).
+* Numeric ranges are specified in the form of `low-high`. For example, `days(1-5)` equals the first five days of the month. The order of high and low is significant, and an exception will be thrown if low is greater than high (except for day of week ranges as noted below).
 
 ## Expressions
 
-Expressions allow you to define when you want events to occur, and when you explicitly do not want them to occur. If your format string does not contain any expressions, it will be invalid and sch will throw an exception.
+Expressions allow you to define when you want events to occur or when you explicitly do not want them to occur. If your format string does not contain any expressions, it will be invalid and sch will throw an exception.
 
 ### minutes
 
@@ -91,13 +91,13 @@ Accepts numbers and numeric-range arguments between 0 and 59 inclusive.
 
 Aliases: `h`, `hour`, `hourOfDay`, `hoursOfDay`
 
-Accepts numbers and numeric-range arguments between 0 and 59 inclusive.
+Accepts numbers and numeric-range arguments between 0 and 23 inclusive.
 
 ### daysOfWeek
 
 Aliases: `w`, `day`, `days`, `dayOfWeek`, `dow`
 
-Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual versions of the dates. Two or three-character abbreviations are accepted (`mo-th` or `mon-thu`) as well as full names (`monday-thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
+Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual days. Two or three-character abbreviations are accepted (such as `mo-th` or `mon-thu`) as well as full names (`monday-thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
 
 Days of week ranges are allowed to span across week boundaries. `6-2` or `fri-mon` are valid ranges and are interpreted as (Friday, Saturday, Sunday, Monday).
 
@@ -129,7 +129,7 @@ Examples:
 
 ## Defaults
 
-When you don't include all expressions, some assumptions have to be made about what you intended. Here are the scenarios:
+When you don't include all expressions, some assumptions have to be made about what you intended.
 
 * If both __hours__ and __minutes__ are not specified, they default to `hours(0) minutes(0)`.
 * If __minutes__ is specified, but __hours__ is not, it defaults to `hours(0-23)`.
@@ -138,7 +138,7 @@ When you don't include all expressions, some assumptions have to be made about w
 
 Here are some examples which illustrate these defaults:
 
-* `minutes(10)` will run at ten minutes after every hour of every day.
+* `minutes(10)` will run at ten minutes after the top of every hour on every day.
 * `hours(12)` will run at noon UTC everyday.
 * `daysOfWeek(mon-fri)` will run at midnight UTC Mondays through Fridays.
 * `daysOfWeek(mon) hours(12)` will run at noon UTC on Mondays.
@@ -146,14 +146,14 @@ Here are some examples which illustrate these defaults:
 
 ## Groups
 
-Expressions can be grouped using the `group(expression, expression, ... )` syntax. This allows you to setup rules which are evaluated independently from each other. For example, you may want to have a different set of rules for weekdays vs. weekends.
+Expressions can be grouped using the `group(expression, expression, ... )` syntax. This allows you to setup sets of expressions which are evaluated independently from each other. For example, you may want to have a different set of rules for weekdays vs. weekends.
 
 Examples:
 
-* `group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))` 10AM on weekdays, and noon on weekends.
-* `group(dates(10/1 - 3/31) hours(12)) group(dates(4/1 - 9/30) hours(14))` 12:00 October through March. 14:00 April through September.
+* `group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))` Runs 10:00 on weekdays, and noon on weekends.
+* `group(dates(10/1 - 3/31) hours(12)) group(dates(4/1 - 9/30) hours(14))` Runs 12:00 during October through March, and at 14:00 during April through September.
 
-When [sch#next](#sch-next) or [sch#previous](#sch-previous) is called, all groups are evaluated to find the next or previous applicable date, and return which ever date which is closest.  All expressions not inside a `group()` are collected and implicitly put into a group.
+When [sch#next](#sch-next) or [sch#previous](#sch-previous) are called, all groups are evaluated to find the next or previous applicable date, and they return which ever date which is closest.  All expressions not inside a `group()` are collected and implicitly put into a group.
 
 Nesting of groups is not allowed.
 
