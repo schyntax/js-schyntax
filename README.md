@@ -23,7 +23,7 @@ console.log(schedule.next());
 Find the next seven dates which are either 10AM on a weekday, or noon or a weekend by using schedule groups:
 
 ```javascript
-var schedule = sch('schedule(hours(10), days(!sat-sun)) schedule(hours(12), days(sat-sun))');
+var schedule = sch('group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
@@ -46,7 +46,7 @@ Returns a `Date` object representing the next timestamp which matches the schedu
 Same as `sch#next` accept that its return value will be less than or equal to the current time or optional `atOrBefore` argument. This means that if you want to find the last n-previous events, you should subtract at least a millisecond from the result before passing it back to the function. For example, here is the reverse of one of the prior examples:
 
 ```javascript
-var schedule = sch('schedule(hours(10), days(!sat-sun)) schedule(hours(12), days(sat-sun))');
+var schedule = sch('group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
