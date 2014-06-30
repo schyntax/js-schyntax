@@ -81,7 +81,8 @@ General Syntax Rules:
 * An argument preceded by a `!` is treated as an exclude. `days(!sat-sun)` means that Saturday and Sunday are excluded from the schedule.
 * All expressions accept any number of arguments, and may mix includes and excludes. For example, you might specify every weekday except tuesday as `days(mon-fri, !tues)`.
 * All time-related values are evaluated as UTC. `hours(12)` will be noon UTC, not noon local.
-* Numeric ranges are specified in the form of `low-high`. For example, `days(1-5)` equals the first five days of the month. The order of high and low is significant, and an exception will be thrown if low is greater than high (except for day of week ranges as noted below).
+* Numeric ranges are specified in the form of `low-high`. For example, `days(1-5)` equals the first five days of the month. The order of low and high is significant, and in cases where `low > high` it will be interpreted as a range which wraps. In other words, `minutes(58-2)` means it will run on minutes 58, 59, 0, 1, and 2.
+* The modulus operator `%` can be used to define intervals. `seconds(%2)` will run on all even seconds. `seconds(7%3)` will run at 7,10,13, ...,55, and 58 seconds of every minute. `seconds(7-19%4)` will run at 7,11,15, and 19 seconds. `seconds(57-4%2)` will run at 57,59,1, and 3 seconds. Note that the modulus operation is always relative to the low value in the range.
 
 ## Expressions
 
