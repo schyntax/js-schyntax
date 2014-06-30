@@ -112,8 +112,6 @@ Aliases: `w`, `day`, `days`, `dayOfWeek`, `dow`
 
 Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual days. Two or three-character abbreviations are accepted (such as `mo-th` or `mon-thu`) as well as full names (`monday-thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
 
-Days of week ranges are allowed to span across week boundaries. `6-2` or `fri-mon` are valid ranges and are interpreted as (Friday, Saturday, Sunday, Monday).
-
 ### daysOfMonth
 
 Aliases: `dom`, `dayOfMonth`
