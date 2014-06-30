@@ -6,6 +6,12 @@ A simple Node.js utility for parsing schedule strings, and finding the next sche
 
 Sch ___is not___ a scheduled task runner. It simply helps you determine _when_ a task should run.
 
+## Install
+
+```
+npm install sch
+```
+
 ## Examples
 
 Find the next weekday (Monday-Friday) at 16:00 UTC:
@@ -81,6 +87,12 @@ General Syntax Rules:
 
 Expressions allow you to define when you want events to occur or when you explicitly do not want them to occur. If your format string does not contain any expressions, it will be invalid and sch will throw an exception.
 
+### seconds
+
+Aliases: `s`, `sec`, `second`, `secondOfMinute`, `secondsOfMinute`
+
+Accepts numbers and numeric-range arguments between 0 and 59 inclusive.
+
 ### minutes
 
 Aliases: `m`, `min`, `minute`, `minuteofhour`, `minutesOfHour`
@@ -129,12 +141,7 @@ Examples:
 
 ## Defaults
 
-When you don't include all expressions, some assumptions have to be made about what you intended.
-
-* If both __hours__ and __minutes__ are not specified, they default to `hours(0) minutes(0)`.
-* If __minutes__ is specified, but __hours__ is not, it defaults to `hours(0-23)`.
-* If __hours__ is specified, but __minutes__ is not, it defaults to `minutes(0)`.
-* If no date expressions are specified (__daysOfWeek__, __daysOfMonth__, __dates__), the default is `daysOfWeek(sun-sat)`.
+When a format string does not include all expression types, some assumptions must be made about the missing values. Sch looks at the expression with the highest-resolution, and then sets `exp_name(0)` for any higher-resolution expressions. For example, if `hours` is the highest resolution specified, then `minutes(0) seconds(0)` is implicitly added to the format. All day-level expressions (`daysOfWeek`, `daysOfMonth`, `dates`) are treated as the same resolution. Any other (lower-resolution) missing expression types are considered wildcards, meaning they will match any date/time (equivalent to not sending any arguments to an expression `exp_name()`).
 
 Here are some examples which illustrate these defaults:
 
