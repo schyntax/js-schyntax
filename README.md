@@ -4,7 +4,7 @@
 
 A simple Node.js utility for parsing schedule strings, and finding the next scheduled event time.
 
-Sch ___is not___ a scheduled task runner. It simply helps you determine _when_ a task should run.
+Sch ___is not___ a scheduled task runner. It simply helps you determine _when_ a task should run. If you're looking for a task runner built on sch, try [Schtick](https://github.com/bretcope/schtick).
 
 ## Install
 
