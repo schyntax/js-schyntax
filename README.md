@@ -108,7 +108,7 @@ Accepts numbers and numeric-range arguments between 0 and 23 inclusive.
 
 ### daysOfWeek
 
-Aliases: `w`, `day`, `days`, `dayOfWeek`, `dow`
+Aliases: `day`, `days`, `dayOfWeek`, `dow`
 
 Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual days. Two or three-character abbreviations are accepted (such as `mo-th` or `mon-thu`) as well as full names (`monday-thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
 
