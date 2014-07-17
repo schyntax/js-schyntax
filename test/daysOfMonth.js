@@ -73,6 +73,46 @@ suite('Days of Month', function ()
 		n = new Date('2016-02-29T00:00:00Z');
 		check(f, d, p, n);
 	});
+	
+	test('dom(8-10)', function ()
+	{
+		var f = this.test.title;
+
+		d = new Date('2014-06-25T00:00:00Z');
+		p = new Date('2014-06-10T00:00:00Z');
+		n = new Date('2014-07-08T00:00:00Z');
+		check(f, d, p, n);
+
+		d = new Date('2014-06-01T00:00:00Z');
+		p = new Date('2014-05-10T00:00:00Z');
+		n = new Date('2014-06-08T00:00:00Z');
+		check(f, d, p, n);
+
+		d = new Date('2014-06-09T00:00:00Z');
+		p = new Date('2014-06-09T00:00:00Z');
+		n = new Date('2014-06-10T00:00:00Z');
+		check(f, d, p, n);
+	});
+	
+	test('dom(25-31)', function ()
+	{
+		var f = this.test.title;
+
+		d = new Date('2014-06-25T00:00:00Z');
+		p = new Date('2014-06-25T00:00:00Z');
+		n = new Date('2014-06-26T00:00:00Z');
+		check(f, d, p, n);
+
+		d = new Date('2014-06-30T00:00:00Z');
+		p = new Date('2014-06-30T00:00:00Z');
+		n = new Date('2014-07-25T00:00:00Z');
+		check(f, d, p, n);
+
+		d = new Date('2014-06-09T00:00:00Z');
+		p = new Date('2014-05-31T00:00:00Z');
+		n = new Date('2014-06-25T00:00:00Z');
+		check(f, d, p, n);
+	});
 
 	test('dom(-1)', function ()
 	{
