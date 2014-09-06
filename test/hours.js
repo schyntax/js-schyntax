@@ -55,7 +55,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(0-23)', function ()
+	test('h(0..23)', function ()
 	{
 		f = this.test.title;
 
@@ -70,7 +70,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(12-20, 21)', function ()
+	test('h(12..20, 21)', function ()
 	{
 		f = this.test.title;
 
@@ -90,7 +90,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(12-22)', function ()
+	test('h(12..22)', function ()
 	{
 		f = this.test.title;
 
@@ -110,7 +110,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(!12-22)', function ()
+	test('h(!12..22)', function ()
 	{
 		f = this.test.title;
 
@@ -130,7 +130,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(20-4)', function ()
+	test('h(20..4)', function ()
 	{
 		f = this.test.title;
 
@@ -150,7 +150,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(!20-4)', function ()
+	test('h(!20..4)', function ()
 	{
 		f = this.test.title;
 
@@ -205,7 +205,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(0-23%2)', function ()
+	test('h(0..23%2)', function ()
 	{
 		f = this.test.title;
 
@@ -245,7 +245,7 @@ suite('Hours', function ()
 		check(f, d, p, n);
 	});
 
-	test('h(3-20%2)', function ()
+	test('h(3..20%2)', function ()
 	{
 		f = this.test.title;
 

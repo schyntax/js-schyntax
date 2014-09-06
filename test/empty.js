@@ -35,7 +35,7 @@ suite('Empty', function ()
 	
 	test('Impossible schedule', function ()
 	{
-		var s = sch('m(!12-28, 26, 27)');
+		var s = sch('m(!12..28, 26, 27)');
 		var d = new Date('2014-06-25T18:26:12.326Z');
 		assert(s.previous(d) === null);
 		assert(s.next(d) === null);

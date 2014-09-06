@@ -139,7 +139,7 @@ suite('Days of Week', function ()
 		check('dow(SATURDAY)', d, p, n);
 	});
 
-	test('dow(sat-sun)', function ()
+	test('dow(sat..sun)', function ()
 	{
 		f = this.test.title;
 
@@ -154,7 +154,7 @@ suite('Days of Week', function ()
 		check(f, d, p, n);
 	});
 
-	test('dow(mon-fri)', function ()
+	test('dow(mon..fri)', function ()
 	{
 		f = this.test.title;
 
@@ -169,7 +169,7 @@ suite('Days of Week', function ()
 		check(f, d, p, n);
 	});
 
-	test('dow(mon-thu, sat)', function ()
+	test('dow(mon..thu, sat)', function ()
 	{
 		f = this.test.title;
 
@@ -229,7 +229,7 @@ suite('Days of Week', function ()
 		check(f, d, p, n);
 	});
 
-	test('dow(thu-tue%2)', function ()
+	test('dow(thu..tue%2)', function ()
 	{
 		f = this.test.title;
 

@@ -57,7 +57,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(0-59)', function ()
+	test('m(0..59)', function ()
 	{
 		f = this.test.title;
 		
@@ -72,7 +72,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(12-26, 27)', function ()
+	test('m(12..26, 27)', function ()
 	{
 		f = this.test.title;
 
@@ -92,7 +92,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(12-28)', function ()
+	test('m(12..28)', function ()
 	{
 		f = this.test.title;
 
@@ -112,7 +112,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(!12-28)', function ()
+	test('m(!12..28)', function ()
 	{
 		f = this.test.title;
 
@@ -132,7 +132,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(50-10)', function ()
+	test('m(50..10)', function ()
 	{
 		f = this.test.title;
 
@@ -152,7 +152,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(!50-10)', function ()
+	test('m(!50..10)', function ()
 	{
 		f = this.test.title;
 
@@ -207,7 +207,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(0-59%2)', function ()
+	test('m(0..59%2)', function ()
 	{
 		f = this.test.title;
 
@@ -247,7 +247,7 @@ suite('Minutes', function ()
 		check(f, d, p, n);
 	});
 	
-	test('m(3-58%2)', function ()
+	test('m(3..58%2)', function ()
 	{
 		f = this.test.title;
 
