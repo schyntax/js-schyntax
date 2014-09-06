@@ -14,12 +14,12 @@ npm install sch
 
 ## Examples
 
-Find the next weekday (Monday-Friday) at 16:00 UTC:
+Find the next weekday (Monday through Friday) at 16:00 UTC:
 
 ```javascript
 var sch = require('sch');
 
-var schedule = sch('hours(16), days(mon-fri)');
+var schedule = sch('hours(16), days(mon..fri)');
 console.log(schedule.next());
 ```
 
@@ -33,7 +33,7 @@ console.log(schedule.next());
 Find the next seven dates which are either 10AM on a weekday, or noon or a weekend by using schedule groups:
 
 ```javascript
-var schedule = sch('group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))');
+var schedule = sch('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
@@ -58,7 +58,7 @@ Returns a `Date` object representing the next timestamp which matches the schedu
 Same as `sch#next` accept that its return value will be less than or equal to the current time or optional `atOrBefore` argument. This means that if you want to find the last n-previous events, you should subtract at least a millisecond from the result before passing it back to the function. For example, here is the reverse of one of the prior examples:
 
 ```javascript
-var schedule = sch('group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))');
+var schedule = sch('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
@@ -78,11 +78,11 @@ General Syntax Rules:
 * Format strings are case-insensitive. `dayofmonth` is equivalent to `DAYOFMONTH` or `dayOfMonth`, etc.
 * All whitespace is insignificant.
 * Fractional numbers should not be used. Any fractional portion of a number will be truncated into an integer. Minute is currently the highest precision offered.
-* An argument preceded by a `!` is treated as an exclude. `days(!sat-sun)` means that Saturday and Sunday are excluded from the schedule.
-* All expressions accept any number of arguments, and may mix includes and excludes. For example, you might specify every weekday except tuesday as `days(mon-fri, !tues)`.
+* An argument preceded by a `!` is treated as an exclude. `days(!sat..sun)` means that Saturday and Sunday are excluded from the schedule.
+* All expressions accept any number of arguments, and may mix includes and excludes. For example, you might specify every weekday except tuesday as `days(mon..fri, !tues)`.
 * All time-related values are evaluated as UTC. `hours(12)` will be noon UTC, not noon local.
-* Numeric ranges are specified in the form of `low-high`. For example, `days(1-5)` equals the first five days of the month. The order of low and high is significant, and in cases where `low > high` it will be interpreted as a range which wraps. In other words, `minutes(58-2)` means it will run on minutes 58, 59, 0, 1, and 2.
-* The modulus operator `%` can be used to define intervals. `seconds(%2)` will run on all even seconds. `seconds(7%3)` will run at 7,10,13, ...,55, and 58 seconds of every minute. `seconds(7-19%4)` will run at 7,11,15, and 19 seconds. `seconds(57-4%2)` will run at 57,59,1, and 3 seconds. Note that the modulus operation is always relative to the low value in the range.
+* Numeric ranges are specified in the form of `low..high`. For example, `days(1..5)` equals the first five days of the month. The order of low and high is significant, and in cases where `low > high` it will be interpreted as a range which wraps. In other words, `minutes(58..2)` means it will run on minutes 58, 59, 0, 1, and 2.
+* The modulus operator `%` can be used to define intervals. `seconds(%2)` will run on all even seconds. `seconds(7%3)` will run at 7,10,13, ...,55, and 58 seconds of every minute. `seconds(7..19%4)` will run at 7,11,15, and 19 seconds. `seconds(57..4%2)` will run at 57,59,1, and 3 seconds. Note that the modulus operation is always relative to the low value in the range.
 
 ## Expressions
 
@@ -110,7 +110,7 @@ Accepts numbers and numeric-range arguments between 0 and 23 inclusive.
 
 Aliases: `day`, `days`, `dayOfWeek`, `dow`
 
-Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual days. Two or three-character abbreviations are accepted (such as `mo-th` or `mon-thu`) as well as full names (`monday-thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
+Accepts numbers and numeric-range arguments between 1 (Sunday) and 7 (Saturday) inclusive. Additionally, you may use textual days. Two or three-character abbreviations are accepted (such as `mo..th` or `mon..thu`) as well as full names (`monday..thursday`). Because `tues`, `thur`, and `thurs` are common abbreviations, those special cases are also accepted, but it may be better to stick to the more predictable 2-3 characters.
 
 ### daysOfMonth
 
@@ -121,8 +121,8 @@ Accepts numbers and numeric-range arguments between 1 and 31 inclusive. A second
 Examples:
 
 * `dom(-1)` The last day of the month.
-* `dom(-5--1)` the last five days of the month.
-* `dom(10--1)` The 10th through the last day of the month.
+* `dom(-5..-1)` the last five days of the month.
+* `dom(10..-1)` The 10th through the last day of the month.
 
 ### dates
 
@@ -134,9 +134,9 @@ Examples:
 
 * `dates(!12/25, !7/4)` Run every day except December 25th and July 4th.
 * `dates(4/1)` Only run on April 1st.
-* `dates(4/1 - 4/30)` Only run for the month of April.
-* `dates(4/1 - 4/30, !4/16)` Run every day in April except for April 16th.
-* `dates(!12/25 - 1/1)` Run every day except December 25th through January 1st.
+* `dates(4/1 .. 4/30)` Only run for the month of April.
+* `dates(4/1 .. 4/30, !4/16)` Run every day in April except for April 16th.
+* `dates(!12/25 .. 1/1)` Run every day except December 25th through January 1st.
 
 ## Defaults
 
@@ -146,7 +146,7 @@ Here are some examples which illustrate these defaults:
 
 * `minutes(10)` will run at ten minutes after the top of every hour on every day.
 * `hours(12)` will run at noon UTC everyday.
-* `daysOfWeek(mon-fri)` will run at midnight UTC Mondays through Fridays.
+* `daysOfWeek(mon..fri)` will run at midnight UTC Mondays through Fridays.
 * `daysOfWeek(mon) hours(12)` will run at noon UTC on Mondays.
 * `daysOfWeek(mon) minutes(0, 30)` will run at the top and half of every hour on Mondays.
 
@@ -156,8 +156,8 @@ Expressions can be grouped using the `group(expression, expression, ... )` synta
 
 Examples:
 
-* `group(hours(10), days(!sat-sun)) group(hours(12), days(sat-sun))` Runs 10:00 on weekdays, and noon on weekends.
-* `group(dates(10/1 - 3/31) hours(12)) group(dates(4/1 - 9/30) hours(14))` Runs 12:00 during October through March, and at 14:00 during April through September.
+* `group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))` Runs 10:00 on weekdays, and noon on weekends.
+* `group(dates(10/1 .. 3/31) hours(12)) group(dates(4/1 .. 9/30) hours(14))` Runs 12:00 during October through March, and at 14:00 during April through September.
 
 When [sch#next](#sch-next) or [sch#previous](#sch-previous) are called, all groups are evaluated to find the next or previous applicable date, and they return which ever date which is closest.  All expressions not inside a `group()` are collected and implicitly put into a group.
 
