@@ -1,15 +1,15 @@
-# sch
+# schyntax
 
-[![Build Status](https://travis-ci.org/bretcope/sch.svg?branch=master)](https://travis-ci.org/bretcope/sch)
+[![Build Status](https://travis-ci.org/schyntax/js-schyntax.svg?branch=master)](https://travis-ci.org/schyntax/js-schyntax)
 
 A simple Node.js utility for parsing schedule strings, and finding the next scheduled event time.
 
-Sch ___is not___ a scheduled task runner. It simply helps you determine _when_ a task should run. If you're looking for a task runner built on sch, try [Schtick](https://github.com/bretcope/schtick).
+Schyntax ___is not___ a scheduled task runner. It simply helps you determine _when_ a task should run. If you're looking for a task runner built on schyntax, try [Schtick](https://github.com/schyntax/js-schtick).
 
 ## Install
 
 ```
-npm install sch
+npm install schyntax
 ```
 
 ## Examples
@@ -17,23 +17,23 @@ npm install sch
 Find the next weekday (Monday through Friday) at 16:00 UTC:
 
 ```javascript
-var sch = require('sch');
+var schyntax = require('schyntax');
 
-var schedule = sch('hours(16), days(mon..fri)');
+var schedule = schyntax('hours(16), days(mon..fri)');
 console.log(schedule.next());
 ```
 
 Find noon on the next day which isn't the Fourth of July or December 25th:
 
 ```javascript
-var schedule = sch('hours(12), dates(!12/25, !7/4)');
+var schedule = schyntax('hours(12), dates(!12/25, !7/4)');
 console.log(schedule.next());
 ```
 
 Find the next seven dates which are either 10AM on a weekday, or noon or a weekend by using schedule groups:
 
 ```javascript
-var schedule = sch('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
+var schedule = schyntax('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
@@ -45,20 +45,20 @@ console.log(dates);
 
 ## Methods
 
-<a name="sch-next"></a>
-### sch#next
+<a name="schyntax-next"></a>
+### schyntax#next
 
 Accepts an optional `after` argument in the form of a `Date` object or numeric Unix timestamp in milliseconds. If no argument is provided, the current time is used.
 
 Returns a `Date` object representing the next timestamp which matches the scheduling criteria. The date will always be greater than, never equal to, `after`. If no timestamp could be found which matches the scheduling criteria, `null` is returned, which generally indicates conflicting scheduling criteria (explicitly including and excluding the same day or time).
 
-<a name="sch-previous"></a>
-### sch#previous
+<a name="schyntax-previous"></a>
+### schyntax#previous
 
-Same as `sch#next` accept that its return value will be less than or equal to the current time or optional `atOrBefore` argument. This means that if you want to find the last n-previous events, you should subtract at least a millisecond from the result before passing it back to the function. For example, here is the reverse of one of the prior examples:
+Same as `schyntax#next` accept that its return value will be less than or equal to the current time or optional `atOrBefore` argument. This means that if you want to find the last n-previous events, you should subtract at least a millisecond from the result before passing it back to the function. For example, here is the reverse of one of the prior examples:
 
 ```javascript
-var schedule = sch('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
+var schedule = schyntax('group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))');
 var dates = [];
 var d = null;
 for (var i = 0; i < 7; i++) {
@@ -70,7 +70,7 @@ console.log(dates);
 
 ## Syntax
 
-Format strings are composed of [groups](#groups) of [expressions](#expressions). The `sch(format)` method will throw an exception if the format string is invalid.
+Format strings are composed of [groups](#groups) of [expressions](#expressions). The `schyntax(format)` method will throw an exception if the format string is invalid.
 
 General Syntax Rules:
 
@@ -86,7 +86,7 @@ General Syntax Rules:
 
 ## Expressions
 
-Expressions allow you to define when you want events to occur or when you explicitly do not want them to occur. If your format string does not contain any expressions, it will be invalid and sch will throw an exception.
+Expressions allow you to define when you want events to occur or when you explicitly do not want them to occur. If your format string does not contain any expressions, it will be invalid and schyntax will throw an exception.
 
 ### seconds
 
@@ -140,7 +140,7 @@ Examples:
 
 ## Defaults
 
-When a format string does not include all expression types, some assumptions must be made about the missing values. Sch looks at the expression with the highest-resolution, and then sets `exp_name(0)` for any higher-resolution expressions. For example, if `hours` is the highest resolution specified, then `minutes(0) seconds(0)` is implicitly added to the format. All day-level expressions (`daysOfWeek`, `daysOfMonth`, `dates`) are treated as the same resolution. Any other (lower-resolution) missing expression types are considered wildcards, meaning they will match any date/time (equivalent to not sending any arguments to an expression `exp_name()`).
+When a format string does not include all expression types, some assumptions must be made about the missing values. Schyntax looks at the expression with the highest-resolution, and then sets `exp_name(0)` for any higher-resolution expressions. For example, if `hours` is the highest resolution specified, then `minutes(0) seconds(0)` is implicitly added to the format. All day-level expressions (`daysOfWeek`, `daysOfMonth`, `dates`) are treated as the same resolution. Any other (lower-resolution) missing expression types are considered wildcards, meaning they will match any date/time (equivalent to not sending any arguments to an expression `exp_name()`).
 
 Here are some examples which illustrate these defaults:
 
@@ -159,7 +159,7 @@ Examples:
 * `group(hours(10), days(!sat..sun)) group(hours(12), days(sat..sun))` Runs 10:00 on weekdays, and noon on weekends.
 * `group(dates(10/1 .. 3/31) hours(12)) group(dates(4/1 .. 9/30) hours(14))` Runs 12:00 during October through March, and at 14:00 during April through September.
 
-When [sch#next](#sch-next) or [sch#previous](#sch-previous) are called, all groups are evaluated to find the next or previous applicable date, and they return which ever date which is closest.  All expressions not inside a `group()` are collected and implicitly put into a group.
+When [schyntax#next](#schyntax-next) or [schyntax#previous](#schyntax-previous) are called, all groups are evaluated to find the next or previous applicable date, and they return which ever date which is closest.  All expressions not inside a `group()` are collected and implicitly put into a group.
 
 Nesting of groups is not allowed.
 
@@ -167,4 +167,4 @@ Nesting of groups is not allowed.
 
 ## Contributing
 
-Bug fixes are always welcome. If you would like to contribute features to the sch expression language, open an issue with your proposed functionality, syntax changes, and use cases _BEFORE_ you submit a pull request so that it can be discussed.
+Bug fixes are always welcome. If you would like to contribute features to the schyntax expression language, open an issue with your proposed functionality, syntax changes, and use cases _BEFORE_ you submit a pull request so that it can be discussed.
