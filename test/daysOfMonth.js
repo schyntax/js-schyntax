@@ -74,7 +74,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 	
-	test('dom(8-10)', function ()
+	test('dom(8..10)', function ()
 	{
 		var f = this.test.title;
 
@@ -94,7 +94,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 	
-	test('dom(25-31)', function ()
+	test('dom(25..31)', function ()
 	{
 		var f = this.test.title;
 
@@ -154,7 +154,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 
-	test('dom(-3--1)', function ()
+	test('dom(-3..-1)', function ()
 	{
 		var f = this.test.title;
 		
@@ -164,7 +164,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 
-	test('dom(5--1)', function ()
+	test('dom(5..-1)', function ()
 	{
 		var f = this.test.title;
 		
@@ -179,7 +179,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 	
-	test('dom(5--2%2)', function ()
+	test('dom(5..-2%2)', function ()
 	{
 		var f = this.test.title;
 		
@@ -239,7 +239,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 	
-	test('dom(20-10)', function ()
+	test('dom(20..10)', function ()
 	{
 		var f = this.test.title;
 		
@@ -259,7 +259,7 @@ suite('Days of Month', function ()
 		check(f, d, p, n);
 	});
 	
-	test('dom(20-10%2)', function ()
+	test('dom(20..10%2)', function ()
 	{
 		var f = this.test.title;
 		
