@@ -1,7 +1,7 @@
 {
   "name": "schyntax",
   "description": "A simple utility for parsing schedule strings, and finding the next scheduled event time.",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "author": "Bret Copeland <bret@atlantisflight.org>",
   "main": "./lib/index.js",
   "repository": {
