@@ -1,4 +1,3 @@
 --reporter spec
 --ui tdd
---timeout 10000
---bail
+--timeout 1000
