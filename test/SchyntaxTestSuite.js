@@ -45,7 +45,7 @@ function createTest (info)
 				if (ex.index === errorIndex)
 					return;
 				
-				throw new Error('Wrong parse error index. Expected: ' + errorIndex + '. Actual: ' + ex.index);
+				throw new Error('Wrong parse error index. Expected: ' + errorIndex + '. Actual: ' + ex.index + '\n' + ex.message);
 			}
 			
 			throw ex;
