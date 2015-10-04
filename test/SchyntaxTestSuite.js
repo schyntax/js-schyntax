@@ -5,14 +5,14 @@ var Exceptions = require('../lib/internals/Exceptions');
 var Schedule = require('../lib/Schedule');
 var testsJson = require('./tests.json');
 
-for (var suiteName in testsJson)
+for (var suiteName in testsJson.suites)
 {
 	suite(suiteName, testRunner);
 }
 
 function testRunner ()
 {
-	var tests = testsJson[this.title].checks;
+	var tests = testsJson.suites[this.title];
 	
 	for (var i = 0; i < tests.length; i++)
 	{
