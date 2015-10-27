@@ -1,0 +1,3286 @@
+(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+var s = require('./lib/Schedule');
+window.schyntax = s;
+},{"./lib/Schedule":2}],2:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./internals/Exceptions');
+var Helpers = require('./internals/Helpers');
+var IrBuilder = require('./internals/IrBuilder');
+var Parser = require('./internals/Parser');
+var Validator = require('./internals/Validator');
+
+/* =============================================================================
+ * 
+ * Schedule
+ *  
+ * ========================================================================== */
+
+module.exports = Schedule;
+
+/**
+ * @param schedule {string}
+ * @constructor
+ */
+function Schedule (schedule)
+{
+	if (typeof schedule !== 'string')
+		throw new Error('schedule argument must be a string.');
+	
+	this.originalText = schedule;
+	
+	var parser = new Parser(schedule);
+	var ast = parser.parse();
+	
+	var validator = new Validator(schedule, ast);
+	validator.assertValid();
+	
+	this._ir = IrBuilder.compileAst(ast);
+}
+
+var SearchMode = {
+	AtOrBefore: 0,
+	After: 1
+};
+
+/* -------------------------------------------------------------------
+ * Prototype Methods
+ * ---------------------------------------------------------------- */
+
+/**
+ * @param [after] {Date}
+ * @return {Date}
+ */
+Schedule.prototype.next = function (after)
+{
+	return this._getEvent(after, SearchMode.After);
+};
+
+/**
+ * @param [atOrBefore] {Date}
+ * @return {Date}
+ */
+Schedule.prototype.previous = function (atOrBefore)
+{
+	return this._getEvent(atOrBefore, SearchMode.AtOrBefore);
+};
+
+/**
+ * @param start {Date}
+ * @param mode {number}
+ * @return {Date}
+ * @private
+ */
+Schedule.prototype._getEvent = function (start, mode)
+{
+	if (!start)
+		start = new Date();
+	
+	var found = false;
+	var result = null;
+	
+	var groups = this._ir.groups;
+	for (var i = 0; i < groups.length; i++)
+	{
+		var e = getGroupEvent(groups[i], start, mode);
+		if (e)
+		{
+			if (!found
+				|| (mode === SearchMode.After && e < result)
+				|| (mode === SearchMode.AtOrBefore && e > result))
+			{
+				result = e;
+				found = true;
+			}
+		}
+	}
+	
+	if (!found)
+		throw new Exceptions.ValidTimeNotFoundError(this.originalText);
+	
+	return result;
+};
+
+/* -------------------------------------------------------------------
+ * Static Methods
+ * ---------------------------------------------------------------- */
+
+/**
+ * @param group {Ir.Group}
+ * @param start {Date}
+ * @param mode {number}
+ * @return {?Date}
+ */
+function getGroupEvent (group, start, mode)
+{
+	var after = mode === SearchMode.After;
+	var inc = after ? 1 : -1; // used for incrementing values up or down depending on the direction we're searching
+
+	var initHour = after ? 0 : 23;
+	var initMinute = after ? 0 : 59;
+	var initSecond = after ? 0 : 59;
+	
+	var applicable, i;
+
+	// todo: make the length of the search configurable
+	date_loop:
+	for (var d = 0; d < 367; d++)
+	{
+		var date = new Date(start);
+		var hour, minute, second;
+		if (d === 0)
+		{
+			if (after)
+				date.setUTCSeconds(date.getUTCSeconds() + 1); // "after" events must be in the future
+			
+			hour = date.getUTCHours();
+			minute = date.getUTCMinutes();
+			second = date.getUTCSeconds();
+		}
+		else
+		{
+			date.setUTCDate(date.getUTCDate() + d * inc);
+			
+			hour = initHour;
+			minute = initMinute;
+			second = initSecond;
+		}
+		
+		var year = date.getUTCFullYear();
+		var month = date.getUTCMonth() + 1;
+		var dayOfWeek = date.getUTCDay() + 1;
+		var dayOfMonth = date.getUTCDate();
+
+		// check if today is an applicable date
+		if (group.hasDates)
+		{
+			applicable = false;
+			for (i = 0; i < group.dates.length; i++)
+			{
+				if (inDateRange(group.dates[i], year, month, dayOfMonth))
+				{
+					applicable = true;
+					break;
+				}
+			}
+			
+			if (!applicable)
+				continue date_loop;
+		}
+		
+		if (group.hasDatesExcluded)
+		{
+			for (i = 0; i < group.datesExcluded.length; i++)
+			{
+				if (inDateRange(group.datesExcluded[i], year, month, dayOfMonth))
+					continue date_loop;
+			}
+		}
+
+		// check if date is an applicable day of month
+		if (group.hasDaysOfMonth)
+		{
+			applicable = false;
+			for (i = 0; i < group.daysOfMonth.length; i++)
+			{
+				if (inDayOfMonthRange(group.daysOfMonth[i], year, month, dayOfMonth))
+				{
+					applicable = true;
+					break;
+				}
+			}
+			
+			if (!applicable)
+				continue date_loop;
+		}
+		
+		if (group.hasDaysOfMonthExcluded)
+		{
+			for (i = 0; i < group.daysOfMonthExcluded.length; i++)
+			{
+				if (inDayOfMonthRange(group.daysOfMonthExcluded[i], year, month, dayOfMonth))
+					continue date_loop;
+			}
+		}
+		
+		// check if date is an applicable day of week
+		if (group.hasDaysOfWeek && !inRule(7, group.daysOfWeek, dayOfWeek))
+			continue date_loop;
+
+		if (group.hasDaysOfWeekExcluded && inRule(7, group.daysOfWeekExcluded, dayOfWeek))
+			continue date_loop;
+		
+		// if we've gotten this far, then today is an applicable day, let's keep going with hour checks
+		var hourCount = after ? 24 - hour : hour + 1;
+		for (; hourCount-- > 0; hour += inc, minute = initMinute, second = initSecond)
+		{
+			if (group.hasHours && !inRule(24, group.hours, hour))
+				continue;
+
+			if (group.hasHoursExcluded && inRule(24, group.hoursExcluded, hour))
+				continue;
+
+			// if we've gotten here, the date and hour are valid. Let's check for minutes
+			var minuteCount = after ? 60 - minute : minute + 1;
+			for (; minuteCount-- > 0; minute += inc, second = initSecond)
+			{
+				if (group.hasMinutes && !inRule(60, group.minutes, minute))
+					continue;
+
+				if (group.hasMinutesExcluded && inRule(60, group.minutesExcluded, minute))
+					continue;
+
+				// check for valid seconds
+				var secondCount = after ? 60 - second : second + 1;
+				for (; secondCount-- > 0; second += inc)
+				{
+					if (group.hasSeconds && !inRule(60, group.seconds, second))
+						continue;
+
+					if (group.hasSecondsExcluded && inRule(60, group.secondsExcluded, second))
+						continue;
+
+					// we've found our event
+					var ms = Date.UTC(year, month - 1, dayOfMonth, hour, minute, second);
+					return new Date(ms);
+				}
+			}
+		}
+	}
+	
+	return null;
+}
+
+/**
+ * @param lengthOfUnit {number}
+ * @param ranges {Ir.IntegerRange[]}
+ * @param value {number}
+ * @return {boolean}
+ */
+function inRule (lengthOfUnit, ranges, value)
+{
+	for (var i = 0; i < ranges.length; i++)
+	{
+		if (inIntegerRange(ranges[i], value, lengthOfUnit))
+			return true;
+	}
+	
+	return false;
+}
+
+/**
+ * @param range {Ir.DateRange}
+ * @param year {number}
+ * @param month {number}
+ * @param dayOfMonth {number}
+ * @return {boolean}
+ */
+function inDateRange (range, year, month, dayOfMonth)
+{
+	// first, check if this is actually a range
+	if (!range.isRange)
+	{
+		// not a range, so just to a straight comparison
+		if (range.start.month !== month || range.start.day !== dayOfMonth)
+			return false;
+
+		if (range.datesHaveYear && range.start.year !== year)
+			return false;
+
+		return true;
+	}
+
+	if (range.isHalfOpen)
+	{
+		// check if this is the last date in a half-open range
+		var end = range.end;
+		if (end.day === dayOfMonth && end.month === month && (!range.datesHaveYear || end.year === year))
+			return false;
+	}
+
+	// check if in-between start and end dates.
+	if (range.datesHaveYear)
+	{
+		// when we have a year, the check is much simpler because the range can't be split
+		if (year < range.start.year || year > range.end.year)
+			return false;
+
+		if (year === range.start.year && compareMonthAndDay(month, dayOfMonth, range.start.month, range.start.day) === -1)
+			return false;
+
+		if (year === range.end.year && compareMonthAndDay(month, dayOfMonth, range.end.month, range.end.day) === 1)
+			return false;
+	}
+	else if (range.isSplit) // split ranges aren't allowed to have years (it wouldn't make any sense)
+	{
+		if (month === range.start.month || month === range.end.month)
+		{
+			if (month === range.start.month && dayOfMonth < range.start.day)
+				return false;
+
+			if (month === range.end.month && dayOfMonth > range.end.day)
+				return false;
+		}
+		else if (!(month < range.end.month || month > range.start.month))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		// not a split range, and no year information - just month and day to go on
+		if (compareMonthAndDay(month, dayOfMonth, range.start.month, range.start.day) === -1)
+			return false;
+
+		if (compareMonthAndDay(month, dayOfMonth, range.end.month, range.end.day) === 1)
+			return false;
+	}
+
+	// If we get here, then we're definitely somewhere within the range.
+	// If there's no interval, then there's nothing else we need to check
+	if (!range.hasInterval)
+		return true;
+
+	// figure out the actual date of the low date so we know whether we're on the desired interval
+	var startYear;
+	if (range.datesHaveYear)
+	{
+		startYear = range.start.year;
+	}
+	else if (range.isSplit && month <= range.end.month)
+	{
+		// start date is from the previous year
+		startYear = year - 1;
+	}
+	else
+	{
+		startYear = year;
+	}
+
+	var startDay = range.start.day;
+
+	// check if start date was actually supposed to be February 29th, but isn't because of non-leap-year.
+	if (range.start.month === 2 && range.start.day === 29 && Helpers.daysInMonth(startYear, 2) != 29)
+	{
+		// bump the start day back to February 28th so that interval schemes work based on that imaginary date
+		// but seriously, people should probably just expect weird results if they're doing something that stupid.
+		startDay = 28;
+	}
+
+	var start = Date.UTC(startYear, range.start.month - 1, startDay, 0, 0, 0);
+	var current = Date.UTC(year, month - 1, dayOfMonth, 0, 0, 0);
+	var dayCount = Math.round((current - start) / (24 * 60 * 60 * 1000));
+
+	return (dayCount % range.interval) === 0;
+}
+
+/**
+ * returns 0 if A and B are equal, -1 if A is before B, or 1 if A is after B
+ * @param monthA {number}
+ * @param dayA {number}
+ * @param monthB {number}
+ * @param dayB {number}
+ * @return {number}
+ */
+function compareMonthAndDay (monthA, dayA, monthB, dayB)
+{
+	if (monthA == monthB)
+	{
+		if (dayA == dayB)
+			return 0;
+
+		return dayA > dayB ? 1 : -1;
+	}
+
+	return monthA > monthB ? 1 : -1;
+}
+
+/**
+ * @param range {Ir.IntegerRange}
+ * @param year {number}
+ * @param month {number}
+ * @param dayOfMonth {number}
+ * @return {boolean}
+ */
+function inDayOfMonthRange (range, year, month, dayOfMonth)
+{
+	if (range.start < 0 || (range.isRange && range.end < 0))
+	{
+		// one of the range values is negative, so we need to convert it to a positive by counting back from the end of the month
+		var daysInMonth = Helpers.daysInMonth(year, month);
+		range = range.cloneWithRevisedRange(
+			range.start < 0 ? daysInMonth + range.start + 1 : range.start,
+			range.end < 0 ? daysInMonth + range.end + 1 : range.end
+		);
+	}
+
+	return inIntegerRange(range, dayOfMonth, daysInPreviousMonth(year, month));
+}
+
+/**
+ * @param range {Ir.IntegerRange}
+ * @param value {number}
+ * @param lengthOfUnit {number}
+ * @return {boolean}
+ */
+function inIntegerRange (range, value, lengthOfUnit)
+{
+	if (!range.isRange)
+	{
+		return value === range.start;
+	}
+
+	if (range.isHalfOpen && value === range.end)
+		return false;
+
+	if (range.isSplit) // range spans across the max value and loops back around
+	{
+		if (value <= range.end || value >= range.start)
+		{
+			if (range.hasInterval)
+			{
+				if (value >= range.start)
+					return (value - range.start) % range.interval === 0;
+
+				return (value + lengthOfUnit - range.start) % range.interval === 0;
+			}
+
+			return true;
+		}
+	}
+	else // not a split range (easier case)
+	{
+		if (value >= range.start && value <= range.end)
+		{
+			if (range.hasInterval)
+				return (value - range.start) % range.interval === 0;
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * @param year {number}
+ * @param month {number}
+ * @return {number}
+ */
+function daysInPreviousMonth (year, month)
+{
+	month--;
+	if (month === 0)
+	{
+		year--;
+		month = 12;
+	}
+
+	return Helpers.daysInMonth(year, month);
+}
+
+},{"./internals/Exceptions":3,"./internals/Helpers":5,"./internals/IrBuilder":7,"./internals/Parser":10,"./internals/Validator":14}],3:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Util = require('util');
+
+/* =============================================================================
+ * 
+ * Exceptions
+ *  
+ * ========================================================================== */
+
+var Exceptions = module.exports = {};
+
+Exceptions.PLEASE_REPORT_BUG_MSG = " This indicates a bug in Schyntax. Please open an issue on github.";
+
+/**
+ * 
+ * @param input {string}
+ * @param index {number}
+ * @return {string}
+ */
+Exceptions.getPointerToIndex = function (input, index)
+{
+	var start = Math.max(0, index - 20);
+	var length = Math.min(input.length - start, 50);
+	
+	var str = input.substr(start, length) + '\n';
+	
+	for (var i = start; i < index; i++)
+		str += ' ';
+	
+	str += '^';
+	return str;
+};
+
+/* -----------------------------------------------------------------*/
+
+Exceptions.SchyntaxParseError = function (message, input, index)
+{
+	this.input = input;
+	this.index = index;
+	this.message = message + "\n\n" + Exceptions.getPointerToIndex(input, index);
+};
+
+Util.inherits(Exceptions.SchyntaxParseError, Error);
+
+/* -----------------------------------------------------------------*/
+
+Exceptions.ValidTimeNotFoundError = function (schedule)
+{
+	this.schedule = schedule;
+	this.message = "A valid time was not found for the schedule.";
+};
+
+Util.inherits(Exceptions.ValidTimeNotFoundError, Error);
+
+},{"util":18}],4:[function(require,module,exports){
+"use strict";
+
+var Exceptions = require('./Exceptions');
+
+// setup enum
+var i = 0;
+var ExpressionType = {
+	
+	IntervalValue: i++, // used internally by the parser (not a real expression type)
+	Seconds: i++,
+	Minutes: i++,
+	Hours: i++,
+	DaysOfWeek: i++,
+	DaysOfMonth: i++,
+	Dates: i++,
+};
+
+Object.defineProperty(ExpressionType, 'valueToName', {
+	value: function (value)
+	{
+		for (var name in ExpressionType)
+		{
+			if (ExpressionType[name] === value)
+				return name;
+		}
+
+		throw new Error('Invalid TokenType: ' + value + Exceptions.PLEASE_REPORT_BUG_MSG);
+	}
+});
+
+Object.defineProperty(ExpressionType, 'nameToValue', {
+	value: function (name)
+	{
+		var value = ExpressionType[name];
+		
+		if (typeof value !== 'number')
+			throw new Error('Invalid TokenType name: ' + name + Exceptions.PLEASE_REPORT_BUG_MSG);
+		
+		return value;
+	}
+});
+
+module.exports = ExpressionType;
+
+},{"./Exceptions":3}],5:[function(require,module,exports){
+"use strict";
+
+/* =============================================================================
+ * 
+ * Helpers
+ *  
+ * ========================================================================== */
+
+var Helpers = {};
+module.exports = Helpers;
+
+Helpers.daysInMonth = function daysInMonth (year, month)
+{
+	if (month === 2) // February is weird
+	{
+		if (year === null)
+			return 29; // default to a leap year, if no year is specified
+
+		if (new Date(year, 1, 29).getDate() === 29)
+			return 29;
+
+		return 28;
+	}
+
+	switch (month)
+	{
+		case 1:
+		case 3:
+		case 5:
+		case 7:
+		case 8:
+		case 10:
+		case 12:
+			return 31;
+		case 4:
+		case 6:
+		case 9:
+		case 11:
+			return 30;
+	}
+
+	throw new Error("Invalid month " + month + Exceptions.PLEASE_REPORT_BUG_MSG);
+};
+
+},{}],6:[function(require,module,exports){
+"use strict";
+
+/* =============================================================================
+ * 
+ * Ir
+ *  
+ * ========================================================================== */
+
+module.exports = Ir;
+
+function Ir ()
+{
+}
+
+/* ===========================================================================*/
+
+Ir.Program = function ()
+{
+	/** @member {Ir.Group[]} */
+	this.groups = [];
+};
+
+/* ===========================================================================*/
+
+Ir.Group = function ()
+{
+	/** @member {Ir.IntegerRange[]} */
+	this.seconds = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.secondsExcluded = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.minutes = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.minutesExcluded = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.hours = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.hoursExcluded = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.daysOfWeek = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.daysOfWeekExcluded = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.daysOfMonth = [];
+	/** @member {Ir.IntegerRange[]} */
+	this.daysOfMonthExcluded = [];
+	/** @member {Ir.DateRange[]} */
+	this.dates = [];
+	/** @member {Ir.DateRange[]} */
+	this.datesExcluded = [];
+};
+
+Object.defineProperty(Ir.Group.prototype, 'hasSeconds', { get: function () { return this.seconds.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasSecondsExcluded', { get: function () { return this.secondsExcluded.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasMinutes', { get: function () { return this.minutes.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasMinutesExcluded', { get: function () { return this.minutesExcluded.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasHours', { get: function () { return this.hours.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasHoursExcluded', { get: function () { return this.hoursExcluded.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDaysOfWeek', { get: function () { return this.daysOfWeek.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDaysOfWeekExcluded', { get: function () { return this.daysOfWeekExcluded.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDaysOfMonth', { get: function () { return this.daysOfMonth.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDaysOfMonthExcluded', { get: function () { return this.daysOfMonthExcluded.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDates', { get: function () { return this.dates.length > 0; } });
+Object.defineProperty(Ir.Group.prototype, 'hasDatesExcluded', { get: function () { return this.datesExcluded.length > 0; } });
+
+/* ===========================================================================*/
+
+/**
+ * @param start {number}
+ * @param end {?number}
+ * @param interval {number}
+ * @param isSplit {boolean}
+ * @param isHalfOpen {boolean}
+ * @constructor
+ */
+Ir.IntegerRange = function (start, end, interval, isSplit, isHalfOpen)
+{
+	this.isRange = false;
+	this.isHalfOpen = false;
+	this.isSplit = false;
+	this.start = start;
+	this.end = 0;
+	
+	if (typeof end === 'number')
+	{
+		this.isSplit = isSplit;
+		this.isHalfOpen = isHalfOpen;
+		this.isRange = true;
+		this.end = end;
+	}
+	this.interval = interval;
+	this.hasInterval = interval !== 0;
+};
+
+/**
+ * @param start {number}
+ * @param end {number}
+ */
+Ir.IntegerRange.prototype.cloneWithRevisedRange = function (start, end)
+{
+	return new Ir.IntegerRange(start, this.isRange ? end : null, this.interval, this.isSplit, this.isHalfOpen);
+};
+
+/* ===========================================================================*/
+
+/**
+ * @param start {Ir.Date}
+ * @param end {?Ir.Date}
+ * @param interval {number}
+ * @param isSplit {boolean}
+ * @param isHalfOpen {boolean}
+ * @constructor
+ */
+Ir.DateRange = function (start, end, interval, isSplit, isHalfOpen)
+{
+	this.isRange = false;
+	this.isHalfOpen = false;
+	this.isSplit = false;
+	/** @member {Ir.Date} */
+	this.start = start;
+	/** @member {?Ir.Date} */
+	this.end = null;
+	this.datesHaveYear = start.year !== 0;
+	
+	if (end)
+	{
+		this.isRange = true;
+		this.isSplit = isSplit;
+		this.isHalfOpen = isHalfOpen;
+		this.end = end;
+	}
+	
+	this.interval = interval;
+	this.hasInterval = interval !== 0;
+};
+
+/* ===========================================================================*/
+
+/**
+ * @param year {?number}
+ * @param month {number}
+ * @param day {number}
+ * @constructor
+ */
+Ir.Date = function (year, month, day)
+{
+	this.year = year ? year : 0;
+	this.month = month;
+	this.day = day;
+};
+
+},{}],7:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var ExpressionType = require('./ExpressionType');
+var Ir = require('./Ir');
+
+/* =============================================================================
+ * 
+ * IrBuilder
+ *  
+ * ========================================================================== */
+
+var IrBuilder = {};
+module.exports = IrBuilder;
+
+/**
+ * @param program {Node.ProgramNode}
+ * @return {Ir.Program}
+ */
+IrBuilder.compileAst = function (program)
+{
+	var ir = new Ir.Program();
+
+	// free-floating expressions are placed in an implicit group
+	var irGroup = compileGroup(program.expressions);
+	if (irGroup !== null)
+		ir.groups.push(irGroup);
+
+	// compile all groups
+	for (var i = 0; i < program.groups.length; i++)
+	{
+		irGroup = compileGroup(program.groups[i].expressions);
+		if (irGroup !== null)
+			ir.groups.push(irGroup);
+	}
+	
+	return ir;
+};
+
+/**
+ * @param expressions {Node.ExpressionNode[]}
+ * @return {Ir.Group}
+ * @private
+ */
+function compileGroup (expressions)
+{
+	if (expressions === null || expressions.length === 0)
+		return null;
+
+	var irGroup = new Ir.Group();
+
+	for (var i = 0; i < expressions.length; i++)
+	{
+		compileExpression(irGroup, expressions[i]);
+	}
+
+	// setup implied rules
+	if (irGroup.hasSeconds || irGroup.hasSecondsExcluded)
+	{
+		// don't need to setup any defaults if seconds are defined
+	}
+	else if (irGroup.hasMinutes || irGroup.hasMinutesExcluded)
+	{
+		irGroup.seconds.push(getZeroInteger());
+	}
+	else if (irGroup.hasHours || irGroup.hasHoursExcluded)
+	{
+		irGroup.seconds.push(getZeroInteger());
+		irGroup.minutes.push(getZeroInteger());
+	}
+	else // only a date level expression was set
+	{
+		irGroup.seconds.push(getZeroInteger());
+		irGroup.minutes.push(getZeroInteger());
+		irGroup.hours.push(getZeroInteger());
+	}
+
+	return irGroup;
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param expression {Node.ExpressionNode}
+ * @private
+ */
+function compileExpression (irGroup, expression)
+{
+	for (var i = 0; i < expression.arguments.length; i++)
+	{
+		var arg = expression.arguments[i];
+
+		switch (expression.expressionType)
+		{
+			case ExpressionType.Seconds:
+				compileSecondsArgument(irGroup, arg);
+				break;
+			case ExpressionType.Minutes:
+				compileMinutesArgument(irGroup, arg);
+				break;
+			case ExpressionType.Hours:
+				compileHoursArgument(irGroup, arg);
+				break;
+			case ExpressionType.DaysOfWeek:
+				compileDaysOfWeekArgument(irGroup, arg);
+				break;
+			case ExpressionType.DaysOfMonth:
+				compileDaysOfMonthArgument(irGroup, arg);
+				break;
+			case ExpressionType.Dates:
+				compileDateArgument(irGroup, arg);
+				break;
+			default:
+				var expName = ExpressionType.valueToName(expression.expressionType);
+				throw new Error("Expression type " + expName + " not supported by the schyntax compiler." + Exceptions.PLEASE_REPORT_BUG_MSG);
+		}
+	}
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileDateArgument (irGroup, arg)
+{
+	/** @type {Ir.Date} */
+	var irStart;
+	/** @type {Ir.Date} */
+	var irEnd = null;
+	var isSplit = false;
+
+	if (arg.isWildcard)
+	{
+		irStart = new Ir.Date(null, 1, 1);
+		irEnd = new Ir.Date(null, 12, 31);
+	}
+	else
+	{
+		var start = arg.range.start;
+		irStart = new Ir.Date(start.year, start.month, start.day);
+
+		if (arg.range.end !== null)
+		{
+			var end = arg.range.end;
+			irEnd = new Ir.Date(end.year, end.month, end.day);
+		}
+		else if (arg.hasInterval)
+		{
+			// if there is an interval, but no end value specified, then the end value is implied
+			irEnd = new Ir.Date(null, 12, 31);
+		}
+
+		// check for split range (spans January 1) - not applicable for dates with explicit years
+		if (irEnd !== null && !start.year)
+		{
+			if (irStart.month >= irEnd.month &&
+				(irStart.month > irEnd.month || irStart.day > irEnd.day))
+			{
+				isSplit = true;
+			}
+		}
+	}
+
+	var irArg = new Ir.DateRange(irStart, irEnd, arg.hasInterval ? arg.intervalValue : 0, isSplit, arg.range ? arg.range.isHalfOpen : false);
+	(arg.isExclusion ? irGroup.datesExcluded : irGroup.dates).push(irArg);
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileSecondsArgument (irGroup, arg)
+{
+	var irArg = compileIntegerArgument(arg, 0, 59);
+	(arg.isExclusion ? irGroup.secondsExcluded : irGroup.seconds).push(irArg);
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileMinutesArgument (irGroup, arg)
+{
+	var irArg = compileIntegerArgument(arg, 0, 59);
+	(arg.isExclusion ? irGroup.minutesExcluded : irGroup.minutes).push(irArg);
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileHoursArgument (irGroup, arg)
+{
+	var irArg = compileIntegerArgument(arg, 0, 23);
+	(arg.isExclusion ? irGroup.hoursExcluded : irGroup.hours).push(irArg);
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileDaysOfWeekArgument (irGroup, arg)
+{
+	var irArg = compileIntegerArgument(arg, 1, 7);
+	(arg.isExclusion ? irGroup.daysOfWeekExcluded : irGroup.daysOfWeek).push(irArg);
+}
+
+/**
+ * @param irGroup {Ir.Group}
+ * @param arg {Node.ArgumentNode}
+ * @private
+ */
+function compileDaysOfMonthArgument (irGroup, arg)
+{
+	var irArg = compileIntegerArgument(arg, 1, 31);
+	(arg.isExclusion ? irGroup.daysOfMonthExcluded : irGroup.daysOfMonth).push(irArg);
+}
+
+/**
+ * @param arg {Node.ArgumentNode}
+ * @param wildStart {number}
+ * @param wildEnd {number}
+ * @return {Ir.IntegerRange}
+ * @private
+ */
+function compileIntegerArgument (arg, wildStart, wildEnd)
+{
+	var start, end;
+	var isSplit = false;
+
+	if (arg.isWildcard)
+	{
+		start = wildStart;
+		end = wildEnd;
+	}
+	else
+	{
+		start = arg.range.start.value;
+		end = arg.range.end ? arg.range.end.value : null;
+
+		if (end === null && arg.hasInterval)
+		{
+			// if there is an interval, but no end value specified, then the end value is implied
+			end = wildEnd;
+		}
+
+		// check for a split range
+		if (end !== null && end < start)
+		{
+			// Start is greater than end, so it's probably a split range, but there's one exception.
+			// If this is a month expression, and end is a negative number (counting back from the end of the month)
+			// then it might not actually be a split range
+			if (start < 0 || end > 0)
+			{
+				// check says that either start is negative or end is positive
+				// (means we're probably not in the weird day of month scenario)
+				// todo: implement a better check which looks for possible overlap between a positive start and negative end
+				isSplit = true;
+			}
+		}
+	}
+
+	return new Ir.IntegerRange(start, end, arg.hasInterval ? arg.intervalValue : 0, isSplit, arg.range ? arg.range.isHalfOpen : false);
+}
+
+/**
+ * @return {Ir.IntegerRange}
+ * @private
+ */
+function getZeroInteger ()
+{
+	return new Ir.IntegerRange(0, null, 0, false, false);
+}
+
+},{"./Exceptions":3,"./ExpressionType":4,"./Ir":6}],8:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var Terms = require('./Terms');
+var Token = require('./Token');
+var TokenType = require('./TokenType');
+
+/* =============================================================================
+ * 
+ * Lexer
+ *  
+ * ========================================================================== */
+
+var ContextMode = {
+	Program: 0,
+	Group: 1,
+	Expression: 2,
+};
+
+module.exports = Lexer;
+
+/**
+ * @param input {string}
+ * @constructor
+ */
+function Lexer (input)
+{
+	// LexerBase init
+	this.input = input;
+	this._length = input.length;
+	
+	// LexerBase defaults
+	this._index = 0;
+	this._leadingTrivia = '';
+	/** @member {number[]} from ContextMode enum. */
+	this._contextStack = [];
+	/** @member {Token[]} */
+	this._tokenQueue = [];
+	
+	this._enterContext(ContextMode.Program);
+	
+	// Lexer init
+	/** @member {function} */
+	this._lexMethod = this._lexList;
+}
+
+/* -------------------------------------------------------------------
+ * LexerBase Members
+ * ---------------------------------------------------------------- */
+
+Object.defineProperty(Lexer.prototype, '_context', {
+	get: function () { return this._contextStack[this._contextStack.length - 1]; }
+});
+
+/**
+ * @return {Token}
+ */
+Lexer.prototype.advance = function ()
+{
+	if (this._tokenQueue.length === 0)
+		this._queueNext();
+	
+	return this._tokenQueue.shift();
+};
+
+/**
+ * @return {Token}
+ */
+Lexer.prototype.peek = function ()
+{
+	if (this._tokenQueue.length === 0)
+		this._queueNext();
+	
+	return this._tokenQueue[0];
+};
+	
+Lexer.prototype._queueNext = function ()
+{
+	while (this._tokenQueue.length === 0)
+	{
+		this._consumeWhiteSpace();
+		this._lexMethod = this._lexMethod.call(this);
+	}
+};
+
+Lexer.prototype._enterContext = function (context)
+{
+	this._contextStack.push(context);
+};
+
+Lexer.prototype._exitContext = function ()
+{
+	if (this._contextStack.length === 1)
+		throw new Error("The lexer attempted to exit the last context." + Exceptions.PLEASE_REPORT_BUG_MSG);
+	
+	return this._contextStack.pop();
+};
+
+Object.defineProperty(Lexer.prototype, '_isEndNext', {
+	get: function () { return this._index == this._length; }
+});
+
+Object.defineProperty(Lexer.prototype, '_isWhiteSpaceNext', {
+	get: function ()
+	{
+		switch (this.input[this._index])
+		{
+			case ' ':
+			case '\t':
+			case '\n':
+			case '\r':
+				return true;
+			default:
+				return false;
+		}
+	}
+});
+
+/**
+ * @return {boolean}
+ */
+Lexer.prototype._endOfInput = function ()
+{
+	this._consumeWhiteSpace();
+	if (this._isEndNext)
+	{
+		if (this._contextStack.length > 1)
+			throw new Exceptions.SchyntaxParseError("Unexpected end of input.", this.input, this._index);
+		
+		var tok = new Token();
+		tok.type = TokenType.EndOfInput;
+		tok.index = this._index;
+		tok.rawValue = '';
+		tok.value = '';
+		
+		this._consumeToken(tok);
+		return true;
+	}
+	
+	return false;
+};
+
+Lexer.prototype._consumeWhiteSpace = function ()
+{
+	var start = this._index;
+	while (!this._isEndNext && this._isWhiteSpaceNext)
+		this._index++;
+	
+	this._leadingTrivia += this.input.substr(start, this._index - start);
+};
+
+/**
+ * @param term {Terminal}
+ * @return {boolean}
+ */
+Lexer.prototype._isNextTerm = function (term)
+{
+	this._consumeWhiteSpace();
+	return term.getToken(this.input, this._index) !== null;
+};
+
+/**
+ * @param term {Terminal}
+ * @private
+ */
+Lexer.prototype._consumeTerm = function (term)
+{
+	this._consumeWhiteSpace();
+	
+	var tok = term.getToken(this.input, this._index);
+	if (tok === null)
+		throw this._unexpectedText(term.tokenType);
+	
+	this._consumeToken(tok);
+};
+
+/**
+ * @param term {Terminal}
+ * @return {boolean}
+ * @private
+ */
+Lexer.prototype._consumeOptionalTerm = function (term)
+{
+	this._consumeWhiteSpace();
+
+	var tok = term.getToken(this.input, this._index);
+	if (tok === null)
+		return false;
+	
+	this._consumeToken(tok);
+	return true;
+};
+
+/**
+ * 
+ * @param tok {Token}
+ * @private
+ */
+Lexer.prototype._consumeToken = function (tok)
+{
+	this._index += tok.rawValue.length;
+	tok.leadingTrivia = this._leadingTrivia;
+	this._leadingTrivia = '';
+	this._tokenQueue.push(tok);
+};
+
+/**
+ * 
+ * @return {exports.SchyntaxParseError}
+ * @private
+ */
+Lexer.prototype._unexpectedText = function ()
+{
+	var expected = '';
+	for (var i = 0; i < arguments.length; i++)
+	{
+		if (i > 0)
+			expected += ', ';
+		
+		expected += TokenType.valueToName(arguments[i]);
+	}
+	
+	var msg = "Unexpected input at index " + this._index + ". Was expecting " + expected;
+	return new Exceptions.SchyntaxParseError(msg, this.input, this._index);
+};
+
+/* -------------------------------------------------------------------
+ * Lexer Members
+ * ---------------------------------------------------------------- */
+
+Lexer.prototype._lexPastEndOfInput = function ()
+{
+	throw new Error("Lexer was advanced past the end of the input." + Exceptions.PLEASE_REPORT_BUG_MSG);
+};
+
+Lexer.prototype._lexList = function ()
+{
+	this._consumeOptionalTerm(Terms.Comma);
+	
+	if (this._endOfInput())
+		return this._lexPastEndOfInput;
+	
+	if (this._context === ContextMode.Program)
+	{
+		if (this._isNextTerm(Terms.OpenCurly))
+			return this._lexGroup;
+	}
+	else if (this._context === ContextMode.Group)
+	{
+		if (this._consumeOptionalTerm(Terms.CloseCurly))
+		{
+			this._exitContext();
+			return this._lexList;
+		}
+	}
+	else if (this._context === ContextMode.Expression)
+	{
+		if (this._consumeOptionalTerm(Terms.CloseParen))
+		{
+			this._exitContext();
+			return this._lexList;
+		}
+	}
+	
+	if (this._context == ContextMode.Expression)
+		return this._lexExpressionArgument;
+	
+	return this._lexExpression;
+};
+
+Lexer.prototype._lexGroup = function ()
+{
+	this._consumeTerm(Terms.OpenCurly);
+	this._enterContext(ContextMode.Group);
+	return this._lexList;
+};
+
+Lexer.prototype._lexExpression = function ()
+{
+	if (this._consumeOptionalTerm(Terms.Seconds) ||
+		this._consumeOptionalTerm(Terms.Minutes) ||
+		this._consumeOptionalTerm(Terms.Hours) ||
+		this._consumeOptionalTerm(Terms.DaysOfWeek) ||
+		this._consumeOptionalTerm(Terms.DaysOfMonth) ||
+		this._consumeOptionalTerm(Terms.Dates))
+	{
+		this._consumeTerm(Terms.OpenParen);
+		this._enterContext(ContextMode.Expression);
+
+		return this._lexList;
+	}
+
+	throw this._unexpectedText(TokenType.ExpressionName);
+};
+
+Lexer.prototype._lexExpressionArgument = function ()
+{
+	this._consumeOptionalTerm(Terms.Not);
+	
+	if (!this._consumeOptionalTerm(Terms.Wildcard))
+	{
+		this._consumeNumberDayOrDate();
+		
+		// might be a range
+		if (this._consumeOptionalTerm(Terms.RangeHalfOpen) || this._consumeOptionalTerm(Terms.RangeInclusive))
+			this._consumeNumberDayOrDate();
+	}
+	
+	if (this._consumeOptionalTerm(Terms.Interval))
+		this._consumeTerm(Terms.PositiveInteger);
+	
+	return this._lexList;
+};
+
+/**
+ * @private
+ */
+Lexer.prototype._consumeNumberDayOrDate = function ()
+{
+	if (this._consumeOptionalTerm(Terms.PositiveInteger))
+	{
+		// this might be a date - check for slashes
+		if (this._consumeOptionalTerm(Terms.ForwardSlash))
+		{
+			this._consumeTerm(Terms.PositiveInteger);
+
+			// might have a year... one more check
+			if (this._consumeOptionalTerm(Terms.ForwardSlash))
+				this._consumeTerm(Terms.PositiveInteger);
+		}
+
+		return;
+	}
+
+	if (this._consumeOptionalTerm(Terms.NegativeInteger) ||
+		this._consumeOptionalTerm(Terms.Sunday) ||
+		this._consumeOptionalTerm(Terms.Monday) ||
+		this._consumeOptionalTerm(Terms.Tuesday) ||
+		this._consumeOptionalTerm(Terms.Wednesday) ||
+		this._consumeOptionalTerm(Terms.Thursday) ||
+		this._consumeOptionalTerm(Terms.Friday) ||
+		this._consumeOptionalTerm(Terms.Saturday))
+	{
+		return;
+	}
+
+	throw this._unexpectedText(TokenType.PositiveInteger, TokenType.NegativeInteger, TokenType.DayLiteral);
+};
+
+},{"./Exceptions":3,"./Terms":11,"./Token":12,"./TokenType":13}],9:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var TokenType = require('./TokenType');
+var Util = require('util');
+
+/* =============================================================================
+ * 
+ * Node - Base class for all nodes.
+ *  
+ * ========================================================================== */
+
+module.exports = Node;
+
+function Node ()
+{
+	/** @member {Token[]} */
+	this.tokens = [];
+	
+}
+
+Object.defineProperty(Node.prototype, 'index', {
+	get: function () { return this.tokens[0].index; }
+});
+
+/**
+ * @param tok {Token}
+ */
+Node.prototype.addToken = function (tok)
+{
+	this.tokens.push(tok);
+};
+
+/* =============================================================================
+ * 
+ * Nodes
+ *  
+ * ========================================================================== */
+
+Node.ProgramNode = function ()
+{
+	Node.call(this);
+	
+	/** @member {Node.GroupNode[]} */
+	this.groups = [];
+	/** @member {Node.ExpressionNode[]} */
+	this.expressions = [];
+};
+Util.inherits(Node.ProgramNode, Node);
+
+/** @param group {Node.GroupNode} */
+Node.ProgramNode.prototype.addGroup = function (group)
+{
+	this.groups.push(group);
+};
+
+/** @param exp {Node.ExpressionNode} */
+Node.ProgramNode.prototype.addExpression = function (exp)
+{
+	this.expressions.push(exp);
+};
+
+/* -----------------------------------------------------------------*/
+
+Node.GroupNode = function ()
+{
+	Node.call(this);
+	
+	/** @member {Node.ExpressionNode[]} */
+	this.expressions = [];
+};
+Util.inherits(Node.GroupNode, Node);
+
+/** @param exp {Node.ExpressionNode} */
+Node.GroupNode.prototype.addExpression = function (exp)
+{
+	this.expressions.push(exp);
+};
+
+/* -----------------------------------------------------------------*/
+
+Node.ExpressionNode = function (expressionType)
+{
+	Node.call(this);
+	
+	this.expressionType = expressionType;
+	/** @member {Node.ArgumentNode[]} */
+	this.arguments = [];
+};
+Util.inherits(Node.ExpressionNode, Node);
+
+/** @param arg {Node.ArgumentNode} */
+Node.ExpressionNode.prototype.addArgument = function (arg)
+{
+	this.arguments.push(arg);
+};
+
+/* -----------------------------------------------------------------*/
+
+Node.ArgumentNode = function ()
+{
+	Node.call(this);
+	
+	this.isExclusion = false;
+	/** @member {Node.IntegerValueNode} */
+	this.interval = null;
+	this.isWildcard = false;
+	/** @member {Node.RangeNode} */
+	this.range = null;
+};
+Util.inherits(Node.ArgumentNode, Node);
+
+Object.defineProperty(Node.ArgumentNode.prototype, 'hasInterval', {
+	get: function () { return this.interval !== null; }
+});
+
+Object.defineProperty(Node.ArgumentNode.prototype, 'intervalValue', {
+	get: function () { return this.interval.value; }
+});
+
+Object.defineProperty(Node.ArgumentNode.prototype, 'isRange', {
+	get: function () { return this.range && this.range.end; }
+});
+
+Object.defineProperty(Node.ArgumentNode.prototype, 'value', {
+	get: function () { return this.range ? this.range.start : null; }
+});
+
+Object.defineProperty(Node.ArgumentNode.prototype, 'intervalTokenIndex', {
+	get: function ()
+	{
+		for (var i = 0; i < this.tokens.length; i++)
+		{
+			/** @type {Token} */
+			var t = this.tokens[i];
+			if (t.type === TokenType.Interval)
+				return t.index;
+		}
+		
+		throw new Error("No interval token found." + Exceptions.PLEASE_REPORT_BUG_MSG);
+	}
+});
+
+/* -----------------------------------------------------------------*/
+
+Node.RangeNode = function ()
+{
+	Node.call(this);
+	
+	/** @member {Node.ValueNode} */
+	this.start = null;
+	/** @member {Node.ValueNode} */
+	this.end = null;
+	this.isHalfOpen = false;
+};
+Util.inherits(Node.RangeNode, Node);
+
+/* -----------------------------------------------------------------*/
+
+Node.ValueNode = function ()
+{
+	Node.call(this);
+};
+Util.inherits(Node.ValueNode, Node);
+
+/* -----------------------------------------------------------------*/
+
+Node.IntegerValueNode = function ()
+{
+	Node.ValueNode.call(this);
+	
+	/** @member {number} */
+	this.value = 0;
+};
+Util.inherits(Node.IntegerValueNode, Node.ValueNode);
+
+/* -----------------------------------------------------------------*/
+
+Node.DateValueNode = function ()
+{
+	Node.ValueNode.call(this);
+	
+	/** @member {number?} */
+	this.year = null;
+	this.month = 0;
+	this.day = 0;
+};
+Util.inherits(Node.DateValueNode, Node.ValueNode);
+
+
+},{"./Exceptions":3,"./TokenType":13,"util":18}],10:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var ExpressionType = require('./ExpressionType');
+var Lexer = require('./Lexer');
+var Node = require('./Node');
+var TokenType = require('./TokenType');
+
+/* =============================================================================
+ * 
+ * Parser
+ *  
+ * ========================================================================== */
+
+module.exports = Parser;
+
+/**
+ * @param input {string}
+ * @constructor
+ */
+function Parser (input)
+{
+	// ParserBase init
+	this._lexer = new Lexer(input);
+}
+
+/* -------------------------------------------------------------------
+ * ParserBase Members
+ * ---------------------------------------------------------------- */
+
+Object.defineProperty(Parser.prototype, 'input', {
+	get: function () { return this._lexer.input; }
+});
+
+/**
+ * @return {Token}
+ * @private
+ */
+Parser.prototype._peek = function ()
+{
+	return this._lexer.peek();
+};
+
+/**
+ * @return {Token}
+ * @private
+ */
+Parser.prototype._advance = function ()
+{
+	return this._lexer.advance();
+};
+
+/**
+ * @param tokenType {number} From TokenType enum.
+ * @return {Token}
+ * @private
+ */
+Parser.prototype._expect = function (tokenType)
+{
+	if (!this._isNext(tokenType))
+		throw this._wrongTokenException(tokenType);
+	
+	return this._advance();
+};
+
+/**
+ * @param tokenType {number} From TokenType enum.
+ * @return {boolean}
+ * @private
+ */
+Parser.prototype._isNext = function (tokenType)
+{
+	return this._peek().type == tokenType;
+};
+
+Parser.prototype._wrongTokenException = function ()
+{
+	var expected = '';
+	for (var i = 0; i < arguments.length; i++)
+	{
+		if (i > 0)
+			expected += ', ';
+
+		expected += TokenType.valueToName(arguments[i]);
+	}
+	
+	var next = this._peek();
+	var msg = "Unexpected token type " + TokenType.valueToName(next.type) + " at index " + this._index + ". Was expecting " + expected;
+	return new Exceptions.SchyntaxParseError(msg, this.input, next.index);
+};
+
+/* -------------------------------------------------------------------
+ * Parser Members
+ * ---------------------------------------------------------------- */
+
+/**
+ * @return {Node.ProgramNode}
+ */
+Parser.prototype.parse = function ()
+{
+	return this._parseProgram();
+};
+
+/**
+ * @return {Node.ProgramNode}
+ */
+Parser.prototype._parseProgram = function ()
+{
+	var program = new Node.ProgramNode();
+	
+	while (!this._isNext(TokenType.EndOfInput))
+	{
+		if (this._isNext(TokenType.OpenCurly))
+		{
+			program.addGroup(this._parseGroup());
+		}
+		else if (this._isNext(TokenType.ExpressionName))
+		{
+			program.addExpression(this._parseExpression());
+		}
+		else
+		{
+			throw this._wrongTokenException(TokenType.OpenCurly, TokenType.ExpressionName, TokenType.Comma);
+		}
+
+		if (this._isNext(TokenType.Comma)) // optional comma
+		{
+			program.addToken(this._advance());
+		}
+	}
+
+	program.addToken(this._expect(TokenType.EndOfInput));
+	return program;
+};
+
+/**
+ * @return {Node.GroupNode}
+ */
+Parser.prototype._parseGroup = function ()
+{
+	var group = new Node.GroupNode();
+	group.addToken(this._expect(TokenType.OpenCurly));
+
+	while (!this._isNext(TokenType.CloseCurly))
+	{
+		group.addExpression(this._parseExpression());
+
+		if (this._isNext(TokenType.Comma)) // optional comma
+		{
+			group.addToken(this._advance());
+		}
+	}
+
+	group.addToken(this._expect(TokenType.CloseCurly));
+	return group;
+};
+
+/**
+ * @return {Node.ExpressionNode}
+ */
+Parser.prototype._parseExpression = function ()
+{
+	var nameTok = this._expect(TokenType.ExpressionName);
+	var type = ExpressionType.nameToValue(nameTok.value);
+	var exp = new Node.ExpressionNode(type);
+	exp.addToken(this._expect(TokenType.OpenParen));
+
+	while (true)
+	{
+		exp.addArgument(this._parseArgument(type));
+
+		if (this._isNext(TokenType.Comma)) // optional comma
+		{
+			exp.addToken(this._advance());
+		}
+
+		if (this._isNext(TokenType.CloseParen))
+		{
+			break;
+		}
+	}
+
+	exp.addToken(this._expect(TokenType.CloseParen));
+	return exp;
+};
+
+/**
+ * @return {Node.ArgumentNode}
+ */
+Parser.prototype._parseArgument = function (expressionType)
+{
+	var arg = new Node.ArgumentNode();
+
+	if (this._isNext(TokenType.Not))
+	{
+		arg.isExclusion = true;
+		arg.addToken(this._advance());
+	}
+
+	if (this._isNext(TokenType.Wildcard))
+	{
+		arg.isWildcard = true;
+		arg.addToken(this._advance());
+	}
+	else
+	{
+		arg.range = this._parseRange(expressionType);
+	}
+
+	if (this._isNext(TokenType.Interval))
+	{
+		arg.addToken(this._advance());
+		arg.interval = this._parseIntegerValue(ExpressionType.IntervalValue);
+	}
+
+	return arg;
+};
+
+/**
+ * @return {Node.RangeNode}
+ */
+Parser.prototype._parseRange = function (expressionType)
+{
+	var range = new Node.RangeNode();
+	range.start = expressionType == ExpressionType.Dates ? this._parseDate() : this._parseIntegerValue(expressionType);
+
+	var isRange = false;
+	if (this._isNext(TokenType.RangeInclusive))
+	{
+		isRange = true;
+	}
+	else if (this._isNext(TokenType.RangeHalfOpen))
+	{
+		isRange = true;
+		range.isHalfOpen = true;
+	}
+
+	if (isRange)
+	{
+		range.addToken(this._advance());
+		range.end = expressionType == ExpressionType.Dates ? this._parseDate() : this._parseIntegerValue(expressionType);
+	}
+
+	return range;
+};
+
+/**
+ * @return {Node.IntegerValueNode}
+ */
+Parser.prototype._parseIntegerValue = function (expressionType)
+{
+	var val = new Node.IntegerValueNode();
+
+	/** @type {Token} */
+	var tok;
+	if (this._isNext(TokenType.PositiveInteger))
+	{
+		// positive integer is valid for anything
+		tok = this._advance();
+		val.addToken(tok);
+		val.value = Number(tok.value);
+		
+		if (val.value > 2147483647)
+			throw new Exceptions.SchyntaxParseError("Integer value is too large.", this.input, tok.index);
+	}
+	else if (this._isNext(TokenType.NegativeInteger))
+	{
+		if (expressionType != ExpressionType.DaysOfMonth)
+		{
+			throw new Exceptions.SchyntaxParseError("Negative values are only allowed in dayofmonth expressions.", this.input, this._peek().index);
+		}
+
+		tok = this._advance();
+		val.addToken(tok);
+		val.value = Number(tok.value);
+		
+		if (val.value < -2147483648)
+			throw new Exceptions.SchyntaxParseError("Integer value is too small.", this.input, tok.index);
+	}
+	else if (this._isNext(TokenType.DayLiteral))
+	{
+		if (expressionType !== ExpressionType.DaysOfWeek)
+			throw new Exceptions.SchyntaxParseError("Unexpected day literal. Day literals are only allowed in daysOfWeek expressions.", this.input, this._peek().index);
+		
+		tok = this._advance();
+		val.addToken(tok);
+		val.value = dayToInteger(tok.value);
+	}
+	else
+	{
+		switch (expressionType)
+		{
+			case ExpressionType.DaysOfMonth:
+				throw this._wrongTokenException(TokenType.PositiveInteger, TokenType.NegativeInteger);
+			case ExpressionType.DaysOfWeek:
+				throw this._wrongTokenException(TokenType.PositiveInteger, TokenType.DayLiteral);
+			default:
+				throw this._wrongTokenException(TokenType.PositiveInteger);
+		}
+	}
+
+	return val;
+};
+
+/**
+ * @return {Node.DateValueNode}
+ */
+Parser.prototype._parseDate = function ()
+{
+	var date = new Node.DateValueNode();
+
+	var tok = this._expect(TokenType.PositiveInteger);
+	date.addToken(tok);
+	var one = Number(tok.value);
+
+	date.addToken(this._expect(TokenType.ForwardSlash));
+
+	tok = this._expect(TokenType.PositiveInteger);
+	date.addToken(tok);
+	var two = Number(tok.value);
+
+	var three = -1;
+	if (this._isNext(TokenType.ForwardSlash))
+	{
+		date.addToken(this._expect(TokenType.ForwardSlash));
+
+		tok = this._expect(TokenType.PositiveInteger);
+		date.addToken(tok);
+		three = Number(tok.value);
+	}
+
+	if (three != -1)
+	{
+		// date has a year
+		date.year = one;
+		date.month = two;
+		date.day = three;
+	}
+	else
+	{
+		// no year
+		date.month = one;
+		date.day = two;
+	}
+
+	return date;
+};
+
+function dayToInteger (day)
+{
+	switch (day)
+	{
+		case "SUNDAY":
+			return 1;
+		case "MONDAY":
+			return 2;
+		case "TUESDAY":
+			return 3;
+		case "WEDNESDAY":
+			return 4;
+		case "THURSDAY":
+			return 5;
+		case "FRIDAY":
+			return 6;
+		case "SATURDAY":
+			return 7;
+		default:
+			throw new Error(day + " is not a day");
+	}
+}
+
+},{"./Exceptions":3,"./ExpressionType":4,"./Lexer":8,"./Node":9,"./TokenType":13}],11:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var ExpressionType = require('./ExpressionType');
+var Token = require('./Token');
+var TokenType = require('./TokenType');
+
+/* =============================================================================
+ * 
+ * Terms
+ *  
+ * ========================================================================== */
+
+var Terms = {
+	
+	// literal terminals
+	RangeInclusive: new Terminal(TokenType.RangeInclusive, '..'),
+	RangeHalfOpen: new Terminal(TokenType.RangeHalfOpen, '..<'),
+	Interval: new Terminal(TokenType.Interval, '%'),
+	Not: new Terminal(TokenType.Not, '!'),
+	OpenParen: new Terminal(TokenType.OpenParen, '('),
+	CloseParen: new Terminal(TokenType.CloseParen, ')'),
+	OpenCurly: new Terminal(TokenType.OpenCurly, '{'),
+	CloseCurly: new Terminal(TokenType.CloseCurly, '}'),
+	ForwardSlash: new Terminal(TokenType.ForwardSlash, '/'),
+	Comma: new Terminal(TokenType.Comma, ','),
+	Wildcard: new Terminal(TokenType.Wildcard, '*'),
+	
+	// regex terminals
+	PositiveInteger: new Terminal(TokenType.PositiveInteger, null, /^[0-9]+/i),
+	NegativeInteger: new Terminal(TokenType.NegativeInteger, null, /^-[0-9]+/i),
+
+	Sunday: new Terminal(TokenType.DayLiteral, "SUNDAY", /^(su|sun|sunday)(?:\b)/i),
+	Monday: new Terminal(TokenType.DayLiteral, "MONDAY", /^(mo|mon|monday)(?:\b)/i),
+	Tuesday: new Terminal(TokenType.DayLiteral, "TUESDAY", /^(tu|tue|tuesday|tues)(?:\b)/i),
+	Wednesday: new Terminal(TokenType.DayLiteral, "WEDNESDAY", /^(we|wed|wednesday)(?:\b)/i),
+	Thursday: new Terminal(TokenType.DayLiteral, "THURSDAY", /^(th|thu|thursday|thur|thurs)(?:\b)/i),
+	Friday: new Terminal(TokenType.DayLiteral, "FRIDAY", /^(fr|fri|friday)(?:\b)/i),
+	Saturday: new Terminal(TokenType.DayLiteral, "SATURDAY", /^(sa|sat|saturday)(?:\b)/i),
+
+	Seconds: fromExpressionType(ExpressionType.Seconds,/^(s|sec|second|seconds|secondofminute|secondsofminute)(?:\b)/i),
+	Minutes: fromExpressionType(ExpressionType.Minutes,/^(m|min|minute|minutes|minuteofhour|minutesofhour)(?:\b)/i),
+	Hours: fromExpressionType(ExpressionType.Hours,/^(h|hour|hours|hourofday|hoursofday)(?:\b)/i),
+	DaysOfWeek: fromExpressionType(ExpressionType.DaysOfWeek,/^(day|days|dow|dayofweek|daysofweek)(?:\b)/i),
+	DaysOfMonth: fromExpressionType(ExpressionType.DaysOfMonth,/^(dom|dayofmonth|daysofmonth)(?:\b)/i),
+	Dates: fromExpressionType(ExpressionType.Dates,/^(date|dates)(?:\b)/i),
+};
+
+module.exports = Terms;
+
+/* =============================================================================
+ * 
+ * Terminal - Internal class
+ *  
+ * ========================================================================== */
+
+/**
+ * 
+ * @param tokenType {number} From the TokenType enum.
+ * @param value {string}
+ * @param [regex] {RegExp}
+ * @constructor
+ */
+function Terminal (tokenType, value, regex)
+{
+	this.tokenType = tokenType;
+	this.value = value;
+	this.regex = regex;
+}
+
+/* -------------------------------------------------------------------
+ * Static Methods << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+/**
+ * 
+ * @param expressionType {number} From the ExpressionType enum.
+ * @param regex {RegExp}
+ * @return {Terminal}
+ */
+function fromExpressionType (expressionType, regex)
+{
+	var expTypeName = ExpressionType.valueToName(expressionType);
+	return new Terminal(TokenType.ExpressionName, expTypeName, regex);
+}
+
+/* -------------------------------------------------------------------
+ * Prototype Methods << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+/**
+ * 
+ * @param input {string}
+ * @param index {number}
+ * @return {Token}
+ */
+Terminal.prototype.getToken = function (input, index)
+{
+	if (!this.regex)
+	{
+		if (input.length - index < this.value.length)
+			return null;
+		
+		for (var i = 0; i < this.value.length; i++)
+		{
+			if (input[index + i] !== this.value[i])
+				return null;
+		}
+		
+		return this.createToken(index, this.value);
+	}
+	
+	var match = this.regex.exec(input.substr(index));
+	if (!match)
+		return null;
+	
+	return this.createToken(index, match[0], match[0]);
+};
+
+/**
+ * 
+ * @param index {number}
+ * @param raw {string}
+ * @param [value] {string}
+ * @return {Token}
+ */
+Terminal.prototype.createToken = function (index, raw, value)
+{
+	var token = new Token();
+	token.type = this.tokenType;
+	token.index = index;
+	token.rawValue = raw;
+	token.value = this.value || value;
+	
+	return token;
+};
+
+},{"./Exceptions":3,"./ExpressionType":4,"./Token":12,"./TokenType":13}],12:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var TokenType = require('./TokenType');
+
+/* =============================================================================
+ * 
+ * Token
+ *  
+ * ========================================================================== */
+
+module.exports = Token;
+
+function Token ()
+{
+	/** @type {number} */
+	this.type = TokenType.None;
+	/** @type {string} */
+	this.rawValue = null;
+	/** @type {string} */
+	this.value = null;
+	/** @type {number} */
+	this.index = 0;
+	/** @type {string} */
+	this.leadingTrivia = null;
+	/** @type {string} */
+	this.trailingTrivia = null;
+}
+
+},{"./TokenType":13}],13:[function(require,module,exports){
+"use strict";
+
+var Exceptions = require('./Exceptions');
+
+// setup enum
+var i = 0;
+var TokenType = {
+	
+	// meta
+	None: i++,
+	EndOfInput: i++,
+	
+	// operators
+	RangeInclusive: i++,
+	RangeHalfOpen: i++,
+	Interval: i++,
+	Not: i++,
+	OpenParen: i++,
+	CloseParen: i++,
+	OpenCurly: i++,
+	CloseCurly: i++,
+	ForwardSlash: i++,
+	Comma: i++,
+	Wildcard: i++,
+
+	// alpha-numeric
+	PositiveInteger: i++,
+	NegativeInteger: i++,
+	ExpressionName: i++,
+	DayLiteral: i++,
+};
+
+Object.defineProperty(TokenType, 'valueToName',{
+	value: function (value)
+	{
+		for (var name in TokenType)
+		{
+			if (TokenType[name] === value)
+				return name;
+		}
+		
+		throw new Error('Invalid TokenType: ' + value + Exceptions.PLEASE_REPORT_BUG_MSG);
+	}
+});
+
+module.exports = TokenType;
+
+},{"./Exceptions":3}],14:[function(require,module,exports){
+"use strict";
+/* -------------------------------------------------------------------
+ * Require Statements << Keep in alphabetical order >>
+ * ---------------------------------------------------------------- */
+
+var Exceptions = require('./Exceptions');
+var ExpressionType = require('./ExpressionType');
+var Helpers = require('./Helpers');
+
+/* =============================================================================
+ * 
+ * Validator
+ *  
+ * ========================================================================== */
+
+module.exports = Validator;
+
+/**
+ * @param input {string}
+ * @param program {Node.ProgramNode}
+ * @constructor
+ */
+function Validator (input, program)
+{
+	/** @member {string} */
+	this.input = input;
+	/** @member {Node.ProgramNode} */
+	this.program = program;
+}
+
+/* -------------------------------------------------------------------
+ * Prototype Members
+ * ---------------------------------------------------------------- */
+
+Validator.prototype.assertValid = function ()
+{
+	this._assertProgram(this.program);
+};
+
+/**
+ * @param program {Node.ProgramNode}
+ */
+Validator.prototype._assertProgram = function (program)
+{
+	var i;
+	if (program.expressions.length === 0)
+	{
+		// no free-floating expressions, so we need to make sure there is at least one group with an expression
+		var hasExpressions = false;
+		for (i = 0; i < program.groups.length; i++)
+		{
+			if (program.groups[i].expressions.length > 0)
+			{
+				hasExpressions = true;
+				break;
+			}
+		}
+
+		if (!hasExpressions)
+		{
+			throw new Exceptions.SchyntaxParseError("Schedule must contain at least one expression.", this.input, 0);
+		}
+	}
+
+	for (i = 0; i < program.groups.length; i++)
+	{
+		this._group(program.groups[i]);
+	}
+
+	this._expressionList(program.expressions);
+};
+
+/**
+ * @param group {Node.GroupNode}
+ * @private
+ */
+Validator.prototype._group = function (group)
+{
+	this._expressionList(group.expressions);
+};
+
+/**
+ * @param expressions {Node.ExpressionNode[]}
+ * @private
+ */
+Validator.prototype._expressionList = function (expressions)
+{
+	for (var i = 0; i < expressions.length; i++)
+	{
+		this._expression(expressions[i]);
+	}
+};
+
+/**
+ * @param expression {Node.ExpressionNode}
+ * @private
+ */
+Validator.prototype._expression = function (expression)
+{
+	if (expression.arguments.length === 0)
+		throw new Exceptions.SchyntaxParseError("Expression has no arguments.", this.input, expression.index);
+
+	for (var i = 0; i < expression.arguments.length; i++)
+	{
+		/** @type {Node.ArgumentNode} */
+		var arg = expression.arguments[i];
+		
+		if (arg.hasInterval && arg.intervalValue === 0)
+		{
+			throw new Exceptions.SchyntaxParseError("\"%0\" is not a valid interval. If your intention was to include all " +
+				expressionTypeToHumanString(expression.expressionType) +
+				" use the wildcard operator \"*\" instead of an interval", this.input, arg.intervalTokenIndex);
+		}
+
+		var validator = this._getValidator(expression.expressionType);
+
+		if (arg.isWildcard)
+		{
+			if (arg.isExclusion && !arg.hasInterval)
+			{
+				throw new Exceptions.SchyntaxParseError(
+					"Wildcards can't be excluded with the ! operator, except when part of an interval (using %)",
+					this.input, arg.index);
+			}
+		}
+		else
+		{
+			if (arg.range === null || arg.range.start === null)
+			{
+				throw new Exceptions.SchyntaxParseError("Expected a value or range.", this.input, arg.index);
+			}
+
+			this._range(expression.expressionType, arg.range, validator);
+		}
+
+		if (arg.hasInterval)
+		{
+			validator.call(this, ExpressionType.IntervalValue, arg.interval);
+		}
+	}
+};
+
+/**
+ * @param expressionType {number}
+ * @return {function}
+ * @private
+ */
+Validator.prototype._getValidator = function (expressionType)
+{
+	switch (expressionType)
+	{
+		case ExpressionType.Seconds:
+		case ExpressionType.Minutes:
+			return this._secondOrMinute;
+		case ExpressionType.Hours:
+			return this._hour;
+		case ExpressionType.DaysOfWeek:
+			return this._dayOfWeek;
+		case ExpressionType.DaysOfMonth:
+			return this._dayOfMonth;
+		case ExpressionType.Dates:
+			return this._date;
+		default:
+			throw new Error("ExpressionType " + expressionType + " has not been implemented by the validator." + Exceptions.PLEASE_REPORT_BUG_MSG);
+	}
+};
+
+/**
+ * @param expressionType {number}
+ * @param range {Node.RangeNode}
+ * @param validator {function}
+ * @private
+ */
+Validator.prototype._range = function (expressionType, range, validator)
+{
+	validator.call(this, expressionType, range.start);
+	if (range.end !== null)
+	{
+		validator.call(this, expressionType, range.end);
+
+		if (range.isHalfOpen && this._valuesAreEqual(expressionType, range.start, range.end))
+			throw new Exceptions.SchyntaxParseError("Start and end values of a half-open range cannot be equal.", this.input, range.start.index);
+	}
+
+	if (expressionType == ExpressionType.Dates && range.end !== null)
+	{
+		// special validation to make the date range is sane
+		/** @type {Node.DateValueNode} */
+		var start = range.start;
+		/** @type {Node.DateValueNode} */
+		var end = range.end;
+
+		if (start.year !== null || end.year !== null)
+		{
+			if (start.year === null || end.year === null)
+				throw new Exceptions.SchyntaxParseError("Cannot mix full and partial dates in a date range.", this.input, start.index);
+
+			if (!this._isStartBeforeEnd(start, end))
+				throw new Exceptions.SchyntaxParseError("End date of range is before the start date.", this.input, start.index);
+		}
+	}
+};
+
+/**
+ * @param expressionType {number}
+ * @param value {Node.IntegerValueNode}
+ * @private
+ */
+Validator.prototype._secondOrMinute = function (expressionType, value)
+{
+	this._integerValue(expressionType, value, 0, 59);
+};
+
+/**
+ * @param expressionType {number}
+ * @param value {Node.IntegerValueNode}
+ * @private
+ */
+Validator.prototype._hour = function (expressionType, value)
+{
+	this._integerValue(expressionType, value, 0, 23);
+};
+
+/**
+ * @param expressionType {number}
+ * @param value {Node.IntegerValueNode}
+ * @private
+ */
+Validator.prototype._dayOfWeek = function (expressionType, value)
+{
+	this._integerValue(expressionType, value, 1, 7);
+};
+
+/**
+ * @param expressionType {number}
+ * @param value {Node.IntegerValueNode}
+ * @private
+ */
+Validator.prototype._dayOfMonth = function (expressionType, value)
+{
+	var ival = this._integerValue(expressionType, value, -31, 31);
+	if (ival === 0)
+		throw new Exceptions.SchyntaxParseError("Day of month cannot be zero.", this.input, value.index);
+};
+
+/**
+ * @param expressionType {number}
+ * @param date {Node.DateValueNode}
+ * @private
+ */
+Validator.prototype._date = function (expressionType, date)
+{
+	if (date.year !== null)
+	{
+		if (date.year < 1900 || date.year > 2200)
+			throw new Exceptions.SchyntaxParseError("Year " + date.year + " is not a valid year. Must be between 1900 and 2200.", this.input, date.index);
+	}
+
+	if (date.month < 1 || date.month > 12)
+	{
+		throw new Exceptions.SchyntaxParseError("Month " + date.month + " is not a valid month. Must be between 1 and 12.", this.input, date.index);
+	}
+
+	var daysInMonth = Helpers.daysInMonth(date.year, date.month); // default to a leap year, if no year is specified
+	if (date.day < 1 || date.day > daysInMonth)
+	{
+		throw new Exceptions.SchyntaxParseError(date.day + " is not a valid day for the month specified. Must be between 1 and " + daysInMonth, this.input, date.index);
+	}
+};
+
+/**
+ * @param expressionType {number}
+ * @param value {Node.IntegerValueNode}
+ * @param min {number}
+ * @param max {number}
+ * @return {number}
+ * @private
+ */
+Validator.prototype._integerValue = function (expressionType, value, min, max)
+{
+	var ival = value.value;
+	if (ival < min || ival > max)
+	{
+		var msg = expressionTypeToHumanString(expressionType) + ' cannot be ' + ival +
+				'. Value must be between ' + min + ' and ' + max + '.';
+
+		throw new Exceptions.SchyntaxParseError(msg, this.input, value.index);
+	}
+
+	return ival;
+};
+
+Validator.prototype._valuesAreEqual = function (expressionType, a, b)
+{
+	if (expressionType == ExpressionType.Dates)
+	{
+		/** @type {Node.DateValueNode} */
+		var ad = a;
+		/** @type {Node.DateValueNode} */
+		var bd = b;
+
+		if (ad.day != bd.day || ad.month != bd.month)
+			return false;
+
+		if (ad.year !== null && ad.year != bd.year)
+			return false;
+
+		return true;
+	}
+
+	// integer values
+	var ai = a.value;
+	var bi = b.value;
+
+	return ai == bi;
+};
+
+/**
+ * @param start {Node.DateValueNode}
+ * @param end {Node.DateValueNode}
+ * @return {boolean}
+ * @private
+ */
+Validator.prototype._isStartBeforeEnd = function (start, end)
+{
+	if (start.year < end.year)
+		return true;
+
+	if (start.year > end.year)
+		return false;
+
+	// must be the same start and end year if we get here
+
+	if (start.month < end.month)
+		return true;
+
+	if (start.month > end.month)
+		return false;
+
+	// must be the same month
+
+	return start.day <= end.day;
+};
+
+function expressionTypeToHumanString (expressionType)
+{
+	switch (expressionType)
+	{
+		case ExpressionType.DaysOfMonth:
+			return "days of the month";
+		case ExpressionType.DaysOfWeek:
+			return "days of the week";
+		case ExpressionType.IntervalValue:
+			return "interval";
+		default:
+			return ExpressionType.valueToName(expressionType);
+	}
+}
+
+},{"./Exceptions":3,"./ExpressionType":4,"./Helpers":5}],15:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],16:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = setTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    clearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        setTimeout(drainQueue, 0);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],17:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],18:[function(require,module,exports){
+(function (process,global){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
+    }
+    return objects.join(' ');
+  }
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
+        }
+      default:
+        return x;
+    }
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
+    }
+  }
+  return str;
+};
+
+
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
+    };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
+  });
+
+  return hash;
+}
+
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
+    }
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
+    }
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+};
+
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
+};
+
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":17,"_process":16,"inherits":15}]},{},[1]);
