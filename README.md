@@ -2,6 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/schyntax.svg)](http://badge.fury.io/js/schyntax)
 [![Build Status](https://travis-ci.org/schyntax/js-schyntax.svg?branch=master)](https://travis-ci.org/schyntax/js-schyntax)
+<sup>Supported Schyntax Version: [1.0.1](https://github.com/schyntax/schyntax/tree/v1.0.1)</sup>
 
 A simple Node.js utility for parsing [Schyntax](https://github.com/schyntax/schyntax) schedule strings, and finding the next scheduled event time.
 
