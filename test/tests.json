@@ -1,6 +1,6 @@
 {
-  "testsVersion": 0,
-  "hash": "UNVERSIONED - DO NOT include this file in ANY pull request to the schyntax/schyntax repo.",
+  "testsVersion": 3,
+  "hash": "6f4e31d5dfd80a28738c8c5103d6d817",
   "comment": "THIS IS A GENERATED FILE. No changes should be made to this file directly. See: https://github.com/schyntax/schyntax/blob/master/WritingTests.md",
   "suites": {
     "argumentErrors": [
