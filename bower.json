@@ -1,0 +1,18 @@
+{
+  "name": "schyntax",
+  "description": "A simple utility for parsing schedule strings, and finding the next scheduled event time.",
+  "main": "./js/schyntax.js",
+  "authors": [
+    "Bret Copeland <bret@atlantisflight.org>"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/schyntax/js-schyntax",
+  "moduleType": [],
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ]
+}
